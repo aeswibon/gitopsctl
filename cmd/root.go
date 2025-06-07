@@ -10,8 +10,8 @@ import (
 )
 
 var (
-	cfgFile string
-	logger  *zap.Logger
+	cfgFile string      // Path to the configuration file
+	logger  *zap.Logger // Global logger instance
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -23,13 +23,15 @@ that watches Git repositories and applies Kubernetes manifests
 to target clusters.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Initialize Zap logger
+		// Create a new production configuration for the logger
 		config := zap.NewProductionConfig()
-		config.OutputPaths = []string{"stdout"} // Log to stdout
-		config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+		config.OutputPaths = []string{"stdout"}                             // Log to stdout
+		config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder        // Use ISO8601 format for timestamps
 		config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder // For colored output
-		config.Encoding = "console"
-		config.Level = zap.NewAtomicLevelAt(zap.InfoLevel) // Set default log level to Info
+		config.Encoding = "console"                                         // Set the logger encoding to console
+		config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)                  // Set default log level to Info
 
+		// Build the logger instance
 		var err error
 		logger, err = config.Build()
 		if err != nil {
@@ -44,6 +46,7 @@ to target clusters.`,
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
+	// Execute the root command and handle errors
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
@@ -51,7 +54,7 @@ func Execute() {
 }
 
 func init() {
-	// Here you will define your flags and configuration settings.
+	// Define persistent flags and configuration settings
 	// Cobra supports persistent flags, which, if defined here,
 	// will be available to all subcommands.
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.gitopsctl.yaml)")

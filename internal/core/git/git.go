@@ -12,8 +12,10 @@ import (
 	"go.uber.org/zap"
 )
 
-// CloneOrPull performs a git clone if the target directory doesn't contain a valid git repo,
-// otherwise it performs a git pull. Returns the HEAD commit hash.
+// CloneOrPull performs a Git clone if the target directory doesn't contain a valid Git repository.
+// If the repository already exists, it performs a Git pull to fetch the latest changes.
+//
+// Returns the HEAD commit hash after the operation.
 func CloneOrPull(logger *zap.Logger, repoURL, branch, targetDir string) (string, error) {
 	var repo *gogit.Repository
 	var err error
@@ -81,7 +83,9 @@ func CloneOrPull(logger *zap.Logger, repoURL, branch, targetDir string) (string,
 	return head.Hash().String(), nil
 }
 
-// GetLatestCommitHash returns the HEAD commit hash of a local Git repository.
+// GetLatestCommitHash retrieves the HEAD commit hash of a local Git repository.
+//
+// This function opens the repository at the specified path and reads the current HEAD reference.
 func GetLatestCommitHash(logger *zap.Logger, repoPath string) (string, error) {
 	repo, err := gogit.PlainOpen(repoPath)
 	if err != nil {
@@ -95,10 +99,11 @@ func GetLatestCommitHash(logger *zap.Logger, repoPath string) (string, error) {
 }
 
 // setupAuth provides authentication for Git operations.
-// For simplicity in MVP, it tries to use SSH agent or default SSH keys.
-// In a production environment, this would handle various auth methods
-// (e.g., username/password, token, specific SSH key files).
-func setupAuth(repoURL string) transport.AuthMethod { // <--- CHANGED: Use transport.AuthMethod
+//
+// For SSH-based repositories, it attempts to use the SSH agent or default SSH keys.
+// For HTTPS-based repositories, it currently supports public repositories without authentication.
+// In production, this function could be extended to handle tokens, username/password, or specific key files.
+func setupAuth(repoURL string) transport.AuthMethod {
 	if strings.HasPrefix(repoURL, "git@") || strings.HasPrefix(repoURL, "ssh://") {
 		// Try to use SSH agent or default SSH keys (~/.ssh/id_rsa)
 		sshAuth, err := ssh.NewSSHAgentAuth("") // Empty string uses default agent/keys
@@ -114,6 +119,8 @@ func setupAuth(repoURL string) transport.AuthMethod { // <--- CHANGED: Use trans
 }
 
 // CleanUpRepo deletes the local repository directory.
+//
+// This function is used to clean up temporary directories created for Git operations.
 func CleanUpRepo(logger *zap.Logger, repoDir string) error {
 	logger.Info("Cleaning up local repository directory", zap.String("dir", repoDir))
 	if err := os.RemoveAll(repoDir); err != nil {
@@ -123,6 +130,8 @@ func CleanUpRepo(logger *zap.Logger, repoDir string) error {
 }
 
 // CreateTempRepoDir creates a temporary directory for cloning a repository.
+//
+// The directory is created with a unique name to ensure isolation between different Git operations.
 func CreateTempRepoDir() (string, error) {
 	tmpDir, err := os.MkdirTemp("", "gitopsctl-repo-*")
 	if err != nil {

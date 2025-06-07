@@ -24,15 +24,30 @@ import (
 )
 
 // ClientSet holds Kubernetes clients for dynamic interactions.
+//
+// It encapsulates the dynamic client, REST mapper, and configuration required
+// for interacting with Kubernetes resources.
 type ClientSet struct {
-	logger         *zap.Logger
+	// logger is used for logging operations and errors.
+	logger *zap.Logger
+
+	// kubeconfigPath is the path to the kubeconfig file used for authentication.
 	kubeconfigPath string
-	dynamicClient  dynamic.Interface
-	mapper         meta.RESTMapper
-	config         *rest.Config
+
+	// dynamicClient is the Kubernetes dynamic client for interacting with arbitrary resources.
+	dynamicClient dynamic.Interface
+
+	// mapper is the REST mapper for translating GroupVersionKind to REST resources.
+	mapper meta.RESTMapper
+
+	// config is the Kubernetes configuration used to initialize clients.
+	config *rest.Config
 }
 
 // NewClientSet initializes a Kubernetes client set.
+//
+// It attempts to use the provided kubeconfig file to build the configuration.
+// If the kubeconfig file is not provided or fails, it falls back to in-cluster configuration.
 func NewClientSet(logger *zap.Logger, kubeconfigPath string) (*ClientSet, error) {
 	var config *rest.Config
 	var err error
@@ -77,8 +92,13 @@ func NewClientSet(logger *zap.Logger, kubeconfigPath string) (*ClientSet, error)
 }
 
 // ApplyManifests applies Kubernetes manifests from a given directory to the cluster.
-func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) error {
+//
+// This function processes all YAML files in the specified directory, decodes them into
+// Kubernetes objects, and applies them to the cluster. It handles both creation and updates
+// of resources based on their existence in the cluster.
+func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) []error {
 	cs.logger.Info("Applying manifests", zap.String("directory", manifestsDir))
+	var applyErrors []error
 
 	err := filepath.WalkDir(manifestsDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -94,7 +114,9 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) er
 		cs.logger.Debug("Processing manifest file", zap.String("file", path))
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return fmt.Errorf("failed to read file %s: %w", path, err)
+			cs.logger.Error("Failed to read manifest file", zap.String("file", path), zap.Error(err))
+			applyErrors = append(applyErrors, fmt.Errorf("failed to read file %s: %w", path, err))
+			return nil // Continue processing other files even if one fails
 		}
 
 		// Split multi-document YAML files
@@ -110,14 +132,16 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) er
 			_, gvk, err := decoder.Decode([]byte(objStr), nil, unstructuredObj)
 			if err != nil {
 				cs.logger.Error("Failed to decode YAML object", zap.String("file", path), zap.Error(err))
-				return fmt.Errorf("failed to decode YAML from %s: %w", path, err)
+				applyErrors = append(applyErrors, fmt.Errorf("failed to decode YAML object in file %s: %w", path, err))
+				continue // Skip this object and continue with the next
 			}
 
 			mapping, err := cs.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 			if err != nil {
 				cs.logger.Error("Failed to get REST mapping for GVK",
 					zap.String("gvk", gvk.String()), zap.Error(err))
-				return fmt.Errorf("failed to get REST mapping for %s: %w", gvk.String(), err)
+				applyErrors = append(applyErrors, fmt.Errorf("failed to get REST mapping for GVK %s: %w", gvk.String(), err))
+				continue // Skip this object and continue with the next
 			}
 
 			var dr dynamic.ResourceInterface
@@ -146,7 +170,8 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) er
 						zap.String("kind", gvk.Kind),
 						zap.String("name", unstructuredObj.GetName()),
 						zap.Error(createErr))
-					return fmt.Errorf("failed to create %s %s: %w", gvk.Kind, unstructuredObj.GetName(), createErr)
+					applyErrors = append(applyErrors, fmt.Errorf("failed to create %s %s: %w", gvk.Kind, unstructuredObj.GetName(), createErr))
+					continue
 				}
 				cs.logger.Info("Created resource",
 					zap.String("kind", gvk.Kind),
@@ -163,7 +188,8 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) er
 						zap.String("kind", gvk.Kind),
 						zap.String("name", unstructuredObj.GetName()),
 						zap.Error(updateErr))
-					return fmt.Errorf("failed to update %s %s: %w", gvk.Kind, unstructuredObj.GetName(), updateErr)
+					applyErrors = append(applyErrors, fmt.Errorf("failed to update %s %s: %w", gvk.Kind, unstructuredObj.GetName(), updateErr))
+					continue
 				}
 				cs.logger.Info("Updated resource",
 					zap.String("kind", gvk.Kind),
@@ -174,11 +200,15 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) er
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("error walking manifests directory %s: %w", manifestsDir, err)
+		cs.logger.Error("Failed to walk through manifests directory", zap.String("directory", manifestsDir), zap.Error(err))
+		applyErrors = append(applyErrors, fmt.Errorf("failed to walk through manifests directory %s: %w", manifestsDir, err))
 	}
-	return nil
+	return applyErrors
 }
 
+// CheckConnectivity verifies connectivity to the Kubernetes cluster.
+//
+// It uses the Kubernetes clientset to fetch the server version, ensuring the cluster is reachable.
 func (cs *ClientSet) CheckConnectivity(ctx context.Context) error {
 	kubeClient, err := kubernetes.NewForConfig(cs.config)
 	if err != nil {

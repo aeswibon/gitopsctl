@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"aeswibon.com/github/gitopsctl/internal/core/app"
@@ -10,11 +12,13 @@ import (
 )
 
 var (
-	appName        string
-	repoURL        string
-	pathInRepo     string
-	kubeconfigPath string
-	interval       string
+	// Flags for the register command
+	appName        string // Name of the application
+	repoURL        string // Git repository URL
+	branch         string // Branch in the repository (optional, default is "master")
+	pathInRepo     string // Path to Kubernetes manifests in the repository
+	kubeconfigPath string // Path to the kubeconfig file for the target cluster
+	interval       string // Polling interval for Git repository
 )
 
 var registerCmd = &cobra.Command{
@@ -24,44 +28,83 @@ var registerCmd = &cobra.Command{
 This command defines where the Kubernetes manifests are located in Git
 and which Kubernetes cluster they should be applied to.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if appName == "" || repoURL == "" || pathInRepo == "" || kubeconfigPath == "" || interval == "" {
-			return fmt.Errorf("all flags (--name, --repo, --path, --kubeconfig, --interval) are required")
+		// Validate required flags
+		if appName == "" {
+			return fmt.Errorf("application name (--name) is required")
+		}
+		if repoURL == "" {
+			return fmt.Errorf("repository URL (--repo) is required")
+		}
+		if pathInRepo == "" {
+			return fmt.Errorf("path within repository (--path) is required")
+		}
+		if kubeconfigPath == "" {
+			return fmt.Errorf("kubeconfig path (--kubeconfig) is required")
+		}
+		if interval == "" {
+			return fmt.Errorf("polling interval (--interval) is required")
 		}
 
+		// Validate the format of the repository URL
+		if !isValidGitURL(repoURL) {
+			return fmt.Errorf("invalid repository URL format: %s. Must be a valid HTTPS or SSH Git URL.", repoURL)
+		}
+
+		// Validate pathInRepo (simple check: no leading/trailing slashes, not empty after trim)
+		pathInRepo = strings.TrimPrefix(strings.TrimSuffix(pathInRepo, "/"), "/")
+		if pathInRepo == "" {
+			return fmt.Errorf("invalid path within repository (--path): cannot be empty or just slashes")
+		}
+
+		// Validate interval
 		parsedInterval, err := time.ParseDuration(interval)
 		if err != nil {
 			return fmt.Errorf("invalid interval format: %w. Examples: 5m, 30s, 1h", err)
 		}
+		if parsedInterval <= 0 {
+			return fmt.Errorf("interval must be a positive duration")
+		}
 
+		// Load existing applications from the configuration file
 		applications, err := app.LoadApplications(app.DefaultAppConfigFile)
 		if err != nil {
 			return fmt.Errorf("failed to load applications: %w", err)
 		}
 
+		// Check if the application already exists
 		if _, exists := applications.Get(appName); exists {
 			logger.Warn("Application with this name already exists. Updating it.", zap.String("name", appName))
 		}
 
+		// Create a new application object
 		newApp := &app.Application{
-			Name:            appName,
-			RepoURL:         repoURL,
-			Path:            pathInRepo,
-			KubeconfigPath:  kubeconfigPath,
-			Interval:        interval,
-			PollingInterval: parsedInterval, // Store parsed duration
-			Status:          "Pending",
-			Message:         "Application registered, awaiting first sync.",
+			Name:                appName,
+			RepoURL:             repoURL,
+			Branch:              branch, // NEW: Assign branch
+			Path:                pathInRepo,
+			KubeconfigPath:      kubeconfigPath,
+			Interval:            interval,
+			PollingInterval:     parsedInterval,
+			Status:              "Pending",
+			Message:             "Application registered, awaiting first sync.",
+			ConsecutiveFailures: 0, // NEW: Initialize failures
 		}
 
-		applications.Add(newApp)
+		// Add the new application to the list
+		applications.Add(newApp) // Use Add method which doesn't lock internally
 
+		// Acquire lock before saving
+		applications.Lock()
+		defer applications.Unlock()
 		if err := app.SaveApplications(applications, app.DefaultAppConfigFile); err != nil {
 			return fmt.Errorf("failed to save application: %w", err)
 		}
 
+		// Log the successful registration of the application
 		logger.Info("Application registered successfully!",
 			zap.String("name", newApp.Name),
 			zap.String("repo", newApp.RepoURL),
+			zap.String("branch", newApp.Branch), // NEW: Log branch
 			zap.String("path", newApp.Path),
 			zap.String("kubeconfig", newApp.KubeconfigPath),
 			zap.String("interval", newApp.Interval),
@@ -71,18 +114,30 @@ and which Kubernetes cluster they should be applied to.`,
 	},
 }
 
+// isValidGitURL performs a basic validation for Git URLs (HTTPS or SSH)
+//
+// It checks if the URL starts with "git@" for SSH or has a valid HTTP/HTTPS scheme.
+func isValidGitURL(s string) bool {
+	if strings.HasPrefix(s, "git@") && strings.Contains(s, ":") {
+		// Basic check for SSH format: git@host:repo/path.git
+		return true
+	}
+	if u, err := url.ParseRequestURI(s); err == nil {
+		// Basic check for HTTPS format
+		return u.Scheme == "http" || u.Scheme == "https"
+	}
+	return false
+}
+
 func init() {
+	// Add the register command to the root command
 	rootCmd.AddCommand(registerCmd)
 
+	// Define flags for the register command
 	registerCmd.Flags().StringVarP(&appName, "name", "n", "", "Unique name for the application")
 	registerCmd.Flags().StringVarP(&repoURL, "repo", "r", "", "Git repository URL (e.g., https://github.com/user/repo.git or git@github.com:user/repo.git)")
+	registerCmd.Flags().StringVarP(&branch, "branch", "b", "master", "Branch in the repository (default is 'master')")
 	registerCmd.Flags().StringVarP(&pathInRepo, "path", "p", "", "Path within the repository to Kubernetes manifests (e.g., 'k8s/prod')")
 	registerCmd.Flags().StringVarP(&kubeconfigPath, "kubeconfig", "k", "", "Path to the kubeconfig file for the target cluster")
 	registerCmd.Flags().StringVarP(&interval, "interval", "i", "5m", "Polling interval for Git repository (e.g., '30s', '5m', '1h')")
-
-	// Mark required flags
-	registerCmd.MarkFlagRequired("name")
-	registerCmd.MarkFlagRequired("repo")
-	registerCmd.MarkFlagRequired("path")
-	registerCmd.MarkFlagRequired("kubeconfig")
 }

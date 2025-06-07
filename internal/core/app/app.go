@@ -15,26 +15,78 @@ const (
 )
 
 // Application represents a single GitOps application managed by the controller.
+//
+// It encapsulates all the necessary metadata and operational details required
+// to monitor and synchronize the application's state between Git and Kubernetes.
 type Application struct {
-	Name              string        `json:"name"`
-	RepoURL           string        `json:"repoURL"`
-	Path              string        `json:"path"`                        // Path within the repo where manifests are (e.g., "k8s/prod")
-	KubeconfigPath    string        `json:"kubeconfigPath"`              // Path to the kubeconfig file
-	Interval          string        `json:"interval"`                    // Polling interval (e.g., "5m", "30s")
-	PollingInterval   time.Duration `json:"-"`                           // Parsed duration for internal use
-	LastSyncedGitHash string        `json:"lastSyncedGitHash,omitempty"` // For tracking
-	Status            string        `json:"status,omitempty"`            // "Running", "Error", "Stopped", "Synced", "Pending"
-	Message           string        `json:"message,omitempty"`           // Last error or success message
+	// Name is a unique identifier for the application.
+	//
+	// It must be unique across all registered applications and should follow
+	// DNS subdomain naming conventions for compatibility with Kubernetes resources.
+	Name string `json:"name"`
+
+	// RepoURL specifies the URL of the Git repository where the application's manifests are stored.
+	//
+	// This URL can be HTTPS or SSH-based, depending on the user's authentication setup.
+	RepoURL string `json:"repoURL"`
+
+	// Branch defines the Git branch to monitor for changes.
+	//
+	// The controller will track this branch for updates and apply changes accordingly.
+	Branch string `json:"branch"`
+
+	// Path specifies the relative directory within the repository where Kubernetes manifests are located.
+	//
+	// This allows users to organize multiple applications or environments within a single repository.
+	Path string `json:"path"`
+
+	// KubeconfigPath is the filesystem path to the kubeconfig file used to access the target Kubernetes cluster.
+	//
+	// This file contains credentials and cluster information required for the controller to interact with the cluster.
+	KubeconfigPath string `json:"kubeconfigPath"`
+
+	// Interval is the polling interval as a string (e.g., "5m", "30s").
+	//
+	// It defines how frequently the controller should check the Git repository for changes.
+	Interval string `json:"interval"`
+
+	// PollingInterval is the parsed duration of the Interval field for internal use.
+	//
+	// This field is not serialized into JSON and is used for efficient time-based operations.
+	PollingInterval time.Duration `json:"-"`
+
+	// LastSyncedGitHash stores the Git commit hash of the last successfully synchronized state.
+	//
+	// This helps the controller detect changes and avoid redundant operations.
+	LastSyncedGitHash string `json:"lastSyncedGitHash,omitempty"`
+
+	// Status represents the current operational state of the application.
+	//
+	// Possible values include "Running", "Error", "Synced", "Pending", etc.
+	Status string `json:"status,omitempty"`
+
+	// Message provides additional context about the application's current state.
+	//
+	// It can include error details, success messages, or other relevant information.
+	Message string `json:"message,omitempty"`
+
+	// ConsecutiveFailures tracks the number of consecutive synchronization failures.
+	//
+	// This can be used to implement backoff logic or alerting mechanisms.
+	ConsecutiveFailures int `json:"consecutiveFailures,omitempty"`
 }
 
-// Applications represents a collection of Application objects, protected by a mutex.
-// The mutex protects access to the 'Apps' map itself.
+// Applications represents a collection of Application objects.
+//
+// It uses a mutex to ensure thread-safe access to the underlying map of applications.
 type Applications struct {
 	Apps map[string]*Application
 	mu   sync.RWMutex
 }
 
-// NewApplications creates a new empty Applications collection.
+// NewApplications creates and initializes a new Applications collection.
+//
+// It returns an empty collection with a properly initialized map.
 func NewApplications() *Applications {
 	return &Applications{
 		Apps: make(map[string]*Application),
@@ -42,35 +94,38 @@ func NewApplications() *Applications {
 }
 
 // Lock acquires a write lock on the Applications collection.
+//
+// This ensures exclusive access to the collection for write operations.
 func (a *Applications) Lock() {
 	a.mu.Lock()
 }
 
-// Unlock releases the write lock on the Applications collection.
+// Unlock releases the write lock held on the Applications collection.
+//
+// It should always be called after Lock, typically using a defer statement.
 func (a *Applications) Unlock() {
 	a.mu.Unlock()
 }
 
-// Add adds an application to the collection.
-// Caller is responsible for locking the Applications struct.
+// Add adds a new application to the collection.
+//
+// The caller is responsible for acquiring the necessary write lock before calling this method.
 func (a *Applications) Add(app *Application) {
-	// Assumes the caller has already acquired a write lock (a.mu.Lock())
-	// or that this function is called during initialization before concurrency starts.
 	a.Apps[app.Name] = app
 }
 
-// Get retrieves an application by name.
-// Caller is responsible for locking the Applications struct.
+// Get retrieves an application by its name.
+//
+// The caller is responsible for acquiring the necessary read or write lock before calling this method.
 func (a *Applications) Get(name string) (*Application, bool) {
-	// Assumes the caller has already acquired a read or write lock (a.mu.RLock() or a.mu.Lock()).
 	app, ok := a.Apps[name]
 	return app, ok
 }
 
-// List returns a slice of all applications.
-// Caller is responsible for locking the Applications struct.
+// List returns a slice containing all applications in the collection.
+//
+// The caller is responsible for acquiring the necessary read or write lock before calling this method.
 func (a *Applications) List() []*Application {
-	// Assumes the caller has already acquired a read or write lock (a.mu.RLock() or a.mu.Lock()).
 	list := make([]*Application, 0, len(a.Apps))
 	for _, app := range a.Apps {
 		list = append(list, app)
@@ -78,15 +133,16 @@ func (a *Applications) List() []*Application {
 	return list
 }
 
-// Delete removes an application by name.
-// Caller is responsible for locking the Applications struct.
+// Delete removes an application from the collection by its name.
+//
+// The caller is responsible for acquiring the necessary write lock before calling this method.
 func (a *Applications) Delete(name string) {
-	// Assumes the caller has already acquired a write lock (a.mu.Lock()).
 	delete(a.Apps, name)
 }
 
-// LoadApplications loads applications from the specified file path.
-// This function acquires its own lock as it's typically called at startup.
+// LoadApplications loads applications from the specified JSON file.
+// It initializes the Applications collection and populates it with data from the file.
+// If the file does not exist, it returns an empty collection.
 func LoadApplications(filePath string) (*Applications, error) {
 	apps := NewApplications()
 	apps.mu.Lock() // Acquire lock for initial load
@@ -118,12 +174,10 @@ func LoadApplications(filePath string) (*Applications, error) {
 	return apps, nil
 }
 
-// SaveApplications saves the current state of applications to the specified file path.
-// This function assumes the caller has already acquired the necessary lock (e.g., a.mu.Lock()).
+// SaveApplications saves the current state of applications to the specified JSON file.
+//
+// The caller is responsible for acquiring the necessary lock before calling this method.
 func SaveApplications(apps *Applications, filePath string) error {
-	// IMPORTANT: No locking here. The caller (e.g., controller.saveAppStatus)
-	// is responsible for acquiring the appropriate lock on the 'apps' struct.
-
 	// Ensure the directory exists
 	dir := filepath.Dir(filePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
