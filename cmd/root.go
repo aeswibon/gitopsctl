@@ -27,6 +27,8 @@ to target clusters.`,
 		config.OutputPaths = []string{"stdout"} // Log to stdout
 		config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 		config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder // For colored output
+		config.Encoding = "console"
+		config.Level = zap.NewAtomicLevelAt(zap.InfoLevel) // Set default log level to Info
 
 		var err error
 		logger, err = config.Build()
