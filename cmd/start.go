@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"aeswibon.com/github/gitopsctl/internal/api"
 	"aeswibon.com/github/gitopsctl/internal/controller"
@@ -58,13 +60,17 @@ Optionally starts a REST API server for programmatic management.`,
 		<-sigChan
 		logger.Info("Received shutdown signal. Stopping controller...")
 
+		timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
 		// Attempt to gracefully shut down the API server
-		if err := apiServer.Stop(apiServer.Echo().AcquireContext()); err != nil {
+		if err := apiServer.Stop(timeoutCtx); err != nil {
 			logger.Error("API server shutdown error", zap.Error(err))
 		}
 
 		// Stop controller loops
 		ctrl.Stop()
+
 		logger.Info("Controller stopped gracefully.")
 		return nil
 	},

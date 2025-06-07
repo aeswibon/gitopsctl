@@ -29,6 +29,44 @@ const (
 	K8sConnectTimeout = 10 * time.Second
 )
 
+// AppCommandType defines the type of command for an application.
+type AppCommandType string
+
+const (
+	// AppCommandStart indicates a command to start or restart an app's reconciliation.
+	// This is used to trigger the reconciliation loop for an application.
+	AppCommandStart AppCommandType = "START"
+	// AppCommandStop indicates a command to stop an app's reconciliation.
+	// This is used to gracefully stop the reconciliation loop for an application.
+	AppCommandStop AppCommandType = "STOP"
+	// AppCommandSync indicates a command to trigger an immediate sync for an app.
+	// This is used to force a synchronization of the application's Git repository
+	AppCommandSync AppCommandType = "SYNC"
+)
+
+// AppCommand represents a command to be executed for a specific application.
+//
+// It includes the type of command (start, stop, sync) and the application name.
+// The Data field can be used for additional parameters if needed, such as force sync or specific commit.
+type AppCommand struct {
+	// Type of command to execute for the application.
+	Type AppCommandType
+	// AppName is the name of the application to which this command applies.
+	AppName string
+	// Data can be used for additional parameters if needed (e.g., force sync, specific commit)
+	Data map[string]interface{}
+}
+
+// AppRuntime holds the context and cancel function for a running application goroutine.
+//
+// It is used to manage the lifecycle of the application's reconciliation loop.
+type appRuntime struct {
+	// Context is used to manage the lifecycle of the application's reconciliation loop.
+	cancel context.CancelFunc
+	// syncChan is a channel used to trigger immediate synchronization of the application.
+	syncChan chan struct{}
+}
+
 // Controller orchestrates the GitOps reconciliation loop.
 //
 // It manages the lifecycle of application synchronization processes.
@@ -41,8 +79,10 @@ type Controller struct {
 	ctx context.Context
 	// Cancel function to stop the context and signal all goroutines to exit.
 	cancel context.CancelFunc
-	// appContexts holds the context cancellation functions for each application.
-	appContexts map[string]context.CancelFunc
+	// AppCommandChan is a channel for receiving commands to start, stop, or sync applications.
+	appCommandChan chan AppCommand
+	// RunningApps holds the currently running applications and their contexts.
+	runningApps map[string]*appRuntime
 	// mu protects the appContexts map to ensure thread-safe access.
 	mu sync.Mutex
 	// WaitGroup is used to wait for all reconciliation goroutines to finish before shutdown.
@@ -55,11 +95,12 @@ type Controller struct {
 func NewController(logger *zap.Logger, apps *app.Applications) *Controller {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Controller{
-		logger:      logger,
-		apps:        apps,
-		ctx:         ctx,
-		cancel:      cancel,
-		appContexts: make(map[string]context.CancelFunc),
+		logger:         logger,
+		apps:           apps,
+		ctx:            ctx,
+		cancel:         cancel,
+		appCommandChan: make(chan AppCommand, 10), // Buffered channel for commands
+		runningApps:    make(map[string]*appRuntime),
 	}
 }
 
@@ -69,43 +110,22 @@ func NewController(logger *zap.Logger, apps *app.Applications) *Controller {
 func (c *Controller) Start(appConfigFile string) error {
 	c.logger.Info("Starting GitOps controller...")
 
-	// Initial launch of goroutines for existing apps
-	c.launchAppGoroutines(appConfigFile)
+	// Start the central command dispatcher goroutine
+	c.wg.Add(1)
+	go c.commandDispatcher(appConfigFile)
 
-	c.logger.Info("All application reconciliation loops started.")
-	return nil
-}
+	// Launch goroutines for existing applications found in config
+	c.apps.RLock() // Read lock for initial listing
+	defer c.apps.RUnlock()
 
-// LaunchAppGoroutines starts goroutines for all applications currently in the app.Applications map.
-//
-// It checks if a goroutine is already running for each application to avoid duplicates.
-func (c *Controller) launchAppGoroutines(appConfigFile string) {
-	c.apps.RLock() // Acquire read lock to iterate apps
 	appsToStart := c.apps.List()
-	c.apps.RUnlock()
-
 	for _, application := range appsToStart {
-		c.mu.Lock() // Protect appContexts map
-		_, exists := c.appContexts[application.Name]
-		c.mu.Unlock()
-
-		if exists {
-			c.logger.Debug("Goroutine already running for application, skipping launch", zap.String("app", application.Name))
-			continue // Skip if already running
-		}
-
-		// Create a separate context for each application's goroutine,
-		// derived from the main controller context.
-		appCtx, appCancel := context.WithCancel(c.ctx)
-		c.mu.Lock()
-		c.appContexts[application.Name] = appCancel // Store cancel function
-		c.mu.Unlock()
-
-		// Create a copy of the application for the goroutine to prevent data races
-		appCopy := *application
-		c.wg.Add(1)
-		go c.reconcileApp(appCtx, &appCopy, appConfigFile, appCancel) // Pass appCancel for self-removal
+		// Send a START command for each existing application
+		c.appCommandChan <- AppCommand{Type: AppCommandStart, AppName: application.Name}
 	}
+
+	c.logger.Info("Initial application reconciliation loops dispatched.")
+	return nil
 }
 
 // Stop gracefully stops all reconciliation loops.
@@ -113,37 +133,145 @@ func (c *Controller) launchAppGoroutines(appConfigFile string) {
 // It cancels the context and waits for all goroutines to finish.
 func (c *Controller) Stop() {
 	c.logger.Info("Stopping GitOps controller...")
-	c.cancel()  // Signal all goroutines to stop
-	c.wg.Wait() // Wait for all goroutines to finish
+	c.cancel()              // Signal all goroutines to stop
+	close(c.appCommandChan) // Close the command channel (dispatcher will exit after processing existing commands)
+	c.wg.Wait()             // Wait for all goroutines to finish
 	c.logger.Info("GitOps controller stopped.")
 }
 
-// StopApp gracefully stops the reconciliation loop for a single application.
-// This is called when an application is unregistered.
+// StartApp sends a command to start or restart an application's reconciliation loop.
+//
+// It will reload the application's definition from the config file.
+func (c *Controller) StartApp(appName string) {
+	c.appCommandChan <- AppCommand{Type: AppCommandStart, AppName: appName}
+}
+
+// StopApp sends a command to stop an application's reconciliation loop.
+//
+// It will gracefully stop the reconciliation loop for the specified application.
 func (c *Controller) StopApp(appName string) {
+	c.appCommandChan <- AppCommand{Type: AppCommandStop, AppName: appName}
+}
+
+// TriggerSync sends a command to trigger an immediate sync for an application.
+//
+// This is useful for forcing a synchronization of the application's Git repository
+func (c *Controller) TriggerSync(appName string) {
+	c.appCommandChan <- AppCommand{Type: AppCommandSync, AppName: appName}
+}
+
+// CommandDispatcher is the central goroutine that processes application commands.
+//
+// It listens for commands to start, stop, or sync applications and manages their reconciliation loops.
+func (c *Controller) commandDispatcher(appConfigFile string) {
+	defer c.wg.Done()
+	c.logger.Info("Starting controller command dispatcher...")
+
+	for {
+		select {
+		case cmd, ok := <-c.appCommandChan:
+			if !ok { // Channel closed, dispatcher should exit
+				c.logger.Info("Command channel closed, dispatcher exiting.")
+				c.stopAllAppGoroutines() // Stop any remaining app goroutines
+				return
+			}
+			c.handleAppCommand(cmd, appConfigFile)
+		case <-c.ctx.Done(): // Main controller context cancelled, dispatcher should exit
+			c.logger.Info("Main controller context cancelled, dispatcher exiting.")
+			c.stopAllAppGoroutines() // Stop any remaining app goroutines
+			return
+		}
+	}
+}
+
+// HandleAppCommand processes a single application command.
+//
+// It starts, stops, or syncs the specified application based on the command type.
+func (c *Controller) handleAppCommand(cmd AppCommand, appConfigFile string) {
+	c.logger.Debug("Received app command", zap.String("type", string(cmd.Type)), zap.String("app", cmd.AppName))
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if cancelFunc, ok := c.appContexts[appName]; ok {
-		c.logger.Info("Stopping reconciliation loop for application", zap.String("app", appName))
-		cancelFunc()                   // Signal the specific goroutine to stop
-		delete(c.appContexts, appName) // Remove from map
-	} else {
-		c.logger.Warn("Attempted to stop non-existent or already stopped application goroutine", zap.String("app", appName))
+	switch cmd.Type {
+	case AppCommandStart:
+		// Load the application config fresh in case it was updated
+		c.apps.RLock()
+		defer c.apps.RUnlock()
+
+		appConfig, exists := c.apps.Get(cmd.AppName)
+		if !exists {
+			c.logger.Error("Attempted to start non-existent application", zap.String("app", cmd.AppName))
+			return
+		}
+
+		if runtime, ok := c.runningApps[cmd.AppName]; ok {
+			// If already running, stop the old one to restart with new config
+			c.logger.Info("Restarting application reconciliation loop", zap.String("app", cmd.AppName))
+			runtime.cancel() // Cancel the old context
+			// We don't delete from runningApps here; it's handled by the app's goroutine defer
+			// We just launch a new one. The old one will exit after processing its context cancellation.
+		}
+
+		appCtx, appCancel := context.WithCancel(c.ctx) // New context for the app
+		syncChan := make(chan struct{}, 1)             // New sync channel for the app
+
+		appCopy := *appConfig // Create a copy for the goroutine
+		c.wg.Add(1)
+		c.runningApps[cmd.AppName] = &appRuntime{cancel: appCancel, syncChan: syncChan}
+		go c.reconcileApp(appCtx, &appCopy, appConfigFile, appCancel, syncChan)
+
+	case AppCommandStop:
+		if runtime, ok := c.runningApps[cmd.AppName]; ok {
+			c.logger.Info("Stopping application reconciliation loop", zap.String("app", cmd.AppName))
+			runtime.cancel()                   // Cancel the specific app's context
+			delete(c.runningApps, cmd.AppName) // Remove from map immediately
+		} else {
+			c.logger.Warn("Attempted to stop non-running application", zap.String("app", cmd.AppName))
+		}
+
+	case AppCommandSync:
+		if runtime, ok := c.runningApps[cmd.AppName]; ok {
+			select {
+			case runtime.syncChan <- struct{}{}:
+				c.logger.Info("Manual sync signal sent to application", zap.String("app", cmd.AppName))
+			default:
+				c.logger.Warn("Application sync channel is busy, skipping immediate sync", zap.String("app", cmd.AppName))
+			}
+		} else {
+			c.logger.Warn("Attempted to trigger sync for non-running application", zap.String("app", cmd.AppName))
+		}
+	}
+}
+
+// StopAllAppGoroutines iterates and stops all currently running application goroutines.
+//
+// It cancels their contexts and removes them from the runningApps map.
+func (c *Controller) stopAllAppGoroutines() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for appName, runtime := range c.runningApps {
+		c.logger.Info("Stopping all application reconciliation loops during shutdown", zap.String("app", appName))
+		runtime.cancel()
+		delete(c.runningApps, appName)
 	}
 }
 
 // ReconcileApp runs the GitOps loop for a single application.
 //
 // It handles Git repository synchronization and Kubernetes manifest application.
-func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, appConfigFile string, appCancel context.CancelFunc) {
+func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, appConfigFile string, appCancel context.CancelFunc, syncChan chan struct{}) {
 	defer c.wg.Done() // Decrement WaitGroup counter when the goroutine finishes
 	// Ensure the app's cancel func is removed from the map when this goroutine exits
 	defer func() {
 		c.mu.Lock()
-		delete(c.appContexts, app.Name)
+		// Only delete if this goroutine was the one registered in runningApps
+		if rt, ok := c.runningApps[app.Name]; ok && &rt.cancel == &appCancel {
+			delete(c.runningApps, app.Name)
+			c.logger.Debug("Removed app from runningApps map", zap.String("app", app.Name))
+		}
 		c.mu.Unlock()
-		appCancel() // Also call the cancel func to ensure its context is marked done
+		appCancel() // Also call the app's cancel func to ensure its context is marked done
 	}()
 
 	logger := c.logger.With(zap.String("app", app.Name))
@@ -217,6 +345,10 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 			// Reset ticker with potentially new interval
 			ticker.Reset(currentInterval)
 
+			c.performSync(appCtx, logger, app, repoDir, k8sClient, appConfigFile)
+
+		case <-syncChan: // Manual sync trigger
+			logger.Info("Manual sync triggered via API for application.", zap.String("app", app.Name))
 			c.performSync(appCtx, logger, app, repoDir, k8sClient, appConfigFile)
 
 		case <-appCtx.Done():

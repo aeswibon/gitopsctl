@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"aeswibon.com/github/gitopsctl/internal/common"
@@ -120,9 +122,11 @@ func (s *Server) Start(address string) error {
 //
 // It gracefully shuts down the server, allowing ongoing requests to complete.
 // This method can be called from the controller or directly via an API endpoint.
-func (s *Server) Stop(ctx echo.Context) error {
+func (s *Server) Stop(ctx context.Context) error {
 	s.logger.Info("Shutting down API server...")
-	return s.e.Shutdown(ctx.Request().Context())
+	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return s.e.Shutdown(timeoutCtx)
 }
 
 // --- API Handlers ---
@@ -139,8 +143,10 @@ func (s *Server) registerApplication(c echo.Context) error {
 	}
 	if err := c.Validate(req); err != nil {
 		s.logger.Error("Failed to validate register application request", zap.Error(err))
-		return err // Validation error is already an HTTPError
+		return err
 	}
+
+	req.Path = strings.TrimPrefix(strings.TrimSuffix(req.Path, "/"), "/")
 
 	// Lock the applications map for modification
 	s.apps.Lock()
@@ -193,11 +199,7 @@ func (s *Server) registerApplication(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to save application configuration")
 	}
 
-	// Inform the controller to potentially re-evaluate / restart the app's goroutine
-	// For simplicity in Phase 2 MVP, we restart the whole controller (which restarts relevant goroutines).
-	// In a more complex setup, you'd signal the controller to manage individual app lifecycle.
-	// We'll handle this by having cmd/start pass a stop/restart signal to the controller.
-	// For now, the next polling interval will pick up the change.
+	s.controller.StartApp(req.Name)
 
 	s.logger.Info("Application registered/updated via API", zap.String("name", req.Name))
 	return c.JSON(http.StatusOK, map[string]string{"message": "Application registered/updated successfully", "name": req.Name})
@@ -281,30 +283,19 @@ func (s *Server) triggerSync(c echo.Context) error {
 	name := c.Param("name")
 
 	s.apps.Lock()
+	defer s.apps.Unlock()
 
 	app, ok := s.apps.Get(name)
 	if !ok {
-		s.apps.Unlock() // Unlock before returning
 		s.logger.Warn("Manual sync requested for non-existent application", zap.String("name", name))
 		return echo.NewHTTPError(http.StatusNotFound, "Application not found")
 	}
 
-	// This is a placeholder for triggering an *immediate* sync.
-	// In a real controller, you'd send a signal/message to the specific
-	// application's goroutine to wake it up and perform a sync now.
-	// For MVP Phase 2, we'll simply update the status to "Syncing" and
-	// rely on the next polling interval, or add a simple manual trigger to the controller.
-	// Given the current controller structure, making it truly on-demand requires
-	// adding a channel to each reconcileApp goroutine.
-	// For now, let's update status and log that a sync was *requested*.
+	s.controller.TriggerSync(name)
 
 	app.Status = "SyncRequested"
 	app.Message = "Manual sync requested."
-	s.apps.Unlock()
 	// No need to save to disk here, controller's next loop or signal will handle it.
-
-	// Placeholder: In a real system, send a signal to the specific application's goroutine
-	// For now, the existing polling loop will pick it up on its next interval.
 	s.logger.Info("Manual sync requested for application", zap.String("name", name))
 	return c.JSON(http.StatusAccepted, SyncTriggerResponse{
 		Message: "Manual sync requested. The controller will process it shortly.",
