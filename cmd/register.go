@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"fmt"
-	"net/url"
 	"strings"
 	"time"
 
+	"aeswibon.com/github/gitopsctl/internal/common"
 	"aeswibon.com/github/gitopsctl/internal/core/app"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
@@ -46,7 +46,7 @@ and which Kubernetes cluster they should be applied to.`,
 		}
 
 		// Validate the format of the repository URL
-		if !isValidGitURL(repoURL) {
+		if !common.IsValidGitURL(repoURL) {
 			return fmt.Errorf("invalid repository URL format: %s. Must be a valid HTTPS or SSH Git URL.", repoURL)
 		}
 
@@ -112,21 +112,6 @@ and which Kubernetes cluster they should be applied to.`,
 
 		return nil
 	},
-}
-
-// isValidGitURL performs a basic validation for Git URLs (HTTPS or SSH)
-//
-// It checks if the URL starts with "git@" for SSH or has a valid HTTP/HTTPS scheme.
-func isValidGitURL(s string) bool {
-	if strings.HasPrefix(s, "git@") && strings.Contains(s, ":") {
-		// Basic check for SSH format: git@host:repo/path.git
-		return true
-	}
-	if u, err := url.ParseRequestURI(s); err == nil {
-		// Basic check for HTTPS format
-		return u.Scheme == "http" || u.Scheme == "https"
-	}
-	return false
 }
 
 func init() {

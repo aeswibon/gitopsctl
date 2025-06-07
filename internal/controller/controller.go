@@ -59,7 +59,10 @@ func (c *Controller) Start(appConfigFile string) error {
 	c.logger.Info("Starting GitOps controller...")
 
 	// Iterate over all applications and start their reconciliation loops
-	for _, application := range c.apps.List() {
+	c.apps.RLock()
+	appsToReconcile := c.apps.List()
+	defer c.apps.RUnlock()
+	for _, application := range appsToReconcile {
 		// Create a copy of the application for the goroutine to prevent data races
 		appCopy := *application
 		c.wg.Add(1)                                // Increment the WaitGroup counter for each application
@@ -128,6 +131,9 @@ func (c *Controller) reconcileApp(application *app.Application, appConfigFile st
 		return
 	}
 
+	// Initial sync attempt immediately
+	c.performSync(logger, application, repoDir, k8sClient, appConfigFile)
+
 	// Set up a ticker for periodic polling of the Git repository
 	ticker := time.NewTicker(application.PollingInterval)
 	defer ticker.Stop()
@@ -139,10 +145,7 @@ func (c *Controller) reconcileApp(application *app.Application, appConfigFile st
 			currentInterval := application.PollingInterval
 			if application.ConsecutiveFailures > 0 {
 				backoffFactor := time.Duration(1 << (application.ConsecutiveFailures - 1)) // Exponential backoff
-				backoffDuration := BaseBackoffDuration * backoffFactor
-				if backoffDuration > currentInterval*MaxConsecutiveFailures { // Cap backoff
-					backoffDuration = currentInterval * MaxConsecutiveFailures
-				}
+				backoffDuration := min(BaseBackoffDuration*backoffFactor, currentInterval*MaxConsecutiveFailures)
 				currentInterval = backoffDuration
 				logger.Warn("Applying backoff due to previous failures",
 					zap.Int("failures", application.ConsecutiveFailures),

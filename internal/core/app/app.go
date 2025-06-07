@@ -100,6 +100,21 @@ func (a *Applications) Lock() {
 	a.mu.Lock()
 }
 
+// RLock acquires a read lock on the Applications collection.
+//
+// This allows multiple readers to access the collection concurrently,
+// while preventing write operations until the read lock is released.
+func (a *Applications) RLock() {
+	a.mu.RLock()
+}
+
+// RUnlock releases the read lock held on the Applications collection.
+//
+// It should always be called after RLock, typically using a defer statement.
+func (a *Applications) RUnlock() {
+	a.mu.RUnlock()
+}
+
 // Unlock releases the write lock held on the Applications collection.
 //
 // It should always be called after Lock, typically using a defer statement.

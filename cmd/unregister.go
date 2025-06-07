@@ -25,25 +25,25 @@ and does NOT delete any resources from the Kubernetes cluster.`,
 		}
 
 		// Load applications from the configuration file
-		applications, err := app.LoadApplications(app.DefaultAppConfigFile)
+		apps, err := app.LoadApplications(app.DefaultAppConfigFile)
 		if err != nil {
 			return fmt.Errorf("failed to load applications: %w", err)
 		}
 
 		// Acquire lock before modifying and saving
-		applications.Lock()
-		defer applications.Unlock()
+		apps.Lock()
+		defer apps.Unlock()
 
 		// Check if the application exists
-		_, exists := applications.Get(unregisterAppName)
+		_, exists := apps.Get(unregisterAppName)
 		if !exists {
 			logger.Warn("Application not found, nothing to unregister.", zap.String("name", unregisterAppName))
 			return nil
 		}
 
 		// Remove the application from the list
-		applications.Delete(unregisterAppName) // Use Delete method
-		if err := app.SaveApplications(applications, app.DefaultAppConfigFile); err != nil {
+		apps.Delete(unregisterAppName) // Use Delete method
+		if err := app.SaveApplications(apps, app.DefaultAppConfigFile); err != nil {
 			return fmt.Errorf("failed to save applications after unregister: %w", err)
 		}
 
