@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -56,6 +57,23 @@ and which Kubernetes cluster they should be applied to.`,
 			return fmt.Errorf("invalid path within repository (--path): cannot be empty or just slashes")
 		}
 
+		info, err := os.Stat(kubeconfigPath)
+		if os.IsNotExist(err) {
+			return fmt.Errorf("kubeconfig file not found at '%s'", kubeconfigPath)
+		}
+		if err != nil {
+			return fmt.Errorf("error accessing kubeconfig path '%s': %w", kubeconfigPath, err)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("kubeconfig path '%s' is a directory, not a file", kubeconfigPath)
+		}
+		// Basic check for read permissions (more robust permissions check might need syscalls or higher privileges)
+		if file, err := os.Open(kubeconfigPath); err != nil {
+			return fmt.Errorf("kubeconfig file at '%s' is not readable: %w", kubeconfigPath, err)
+		} else {
+			file.Close()
+		}
+
 		// Validate interval
 		parsedInterval, err := time.ParseDuration(interval)
 		if err != nil {
@@ -66,13 +84,16 @@ and which Kubernetes cluster they should be applied to.`,
 		}
 
 		// Load existing applications from the configuration file
-		applications, err := app.LoadApplications(app.DefaultAppConfigFile)
+		apps, err := app.LoadApplications(app.DefaultAppConfigFile)
 		if err != nil {
 			return fmt.Errorf("failed to load applications: %w", err)
 		}
 
+		apps.Lock()
+		defer apps.Unlock()
+
 		// Check if the application already exists
-		if _, exists := applications.Get(appName); exists {
+		if _, exists := apps.Get(appName); exists {
 			logger.Warn("Application with this name already exists. Updating it.", zap.String("name", appName))
 		}
 
@@ -91,12 +112,8 @@ and which Kubernetes cluster they should be applied to.`,
 		}
 
 		// Add the new application to the list
-		applications.Add(newApp) // Use Add method which doesn't lock internally
-
-		// Acquire lock before saving
-		applications.Lock()
-		defer applications.Unlock()
-		if err := app.SaveApplications(applications, app.DefaultAppConfigFile); err != nil {
+		apps.Add(newApp)
+		if err := app.SaveApplications(apps, app.DefaultAppConfigFile); err != nil {
 			return fmt.Errorf("failed to save application: %w", err)
 		}
 

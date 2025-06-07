@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -16,7 +17,7 @@ import (
 // If the repository already exists, it performs a Git pull to fetch the latest changes.
 //
 // Returns the HEAD commit hash after the operation.
-func CloneOrPull(logger *zap.Logger, repoURL, branch, targetDir string) (string, error) {
+func CloneOrPull(ctx context.Context, logger *zap.Logger, repoURL, branch, targetDir string) (string, error) {
 	var repo *gogit.Repository
 	var err error
 
@@ -32,7 +33,7 @@ func CloneOrPull(logger *zap.Logger, repoURL, branch, targetDir string) (string,
 				zap.String("branch", branch),
 				zap.String("targetDir", targetDir),
 			)
-			repo, err = gogit.PlainClone(targetDir, false, &gogit.CloneOptions{
+			repo, err = gogit.PlainCloneContext(ctx, targetDir, false, &gogit.CloneOptions{
 				URL:           repoURL,
 				ReferenceName: plumbing.ReferenceName("refs/heads/" + branch),
 				SingleBranch:  true,
@@ -59,7 +60,7 @@ func CloneOrPull(logger *zap.Logger, repoURL, branch, targetDir string) (string,
 			return "", fmt.Errorf("failed to get worktree for %s: %w", targetDir, err)
 		}
 
-		err = worktree.Pull(&gogit.PullOptions{
+		err = worktree.PullContext(ctx, &gogit.PullOptions{
 			RemoteName:    "origin",
 			ReferenceName: plumbing.ReferenceName("refs/heads/" + branch),
 			SingleBranch:  true,

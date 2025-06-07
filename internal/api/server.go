@@ -228,11 +228,11 @@ func (s *Server) getApplicationStatus(c echo.Context) error {
 	s.apps.RLock()
 	defer s.apps.RUnlock()
 
-	application, ok := s.apps.Get(name)
+	app, ok := s.apps.Get(name)
 	if !ok {
 		return echo.NewHTTPError(http.StatusNotFound, "Application not found")
 	}
-	return c.JSON(http.StatusOK, ConvertAppToResponse(application))
+	return c.JSON(http.StatusOK, ConvertAppToResponse(app))
 }
 
 // UnregisterApplication handles the removal of an application by name.
@@ -243,15 +243,21 @@ func (s *Server) getApplicationStatus(c echo.Context) error {
 func (s *Server) unregisterApplication(c echo.Context) error {
 	name := c.Param("name")
 
-	s.apps.Lock()
-	defer s.apps.Unlock()
+	s.apps.RLock()
+	defer s.apps.RUnlock()
 
 	_, exists := s.apps.Get(name)
 	if !exists {
 		return echo.NewHTTPError(http.StatusNotFound, "Application not found")
 	}
 
-	s.apps.Delete(name) // Use Delete method
+	// Stop the controller's goroutine for this application FIRST
+	s.controller.StopApp(name)
+	s.apps.Lock()
+	defer s.apps.Unlock()
+
+	// Remove the application from the store
+	s.apps.Delete(name)
 	if err := app.SaveApplications(s.apps, app.DefaultAppConfigFile); err != nil {
 		s.logger.Error("Failed to save applications after unregister", zap.Error(err))
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to remove application configuration")
@@ -274,11 +280,12 @@ func (s *Server) unregisterApplication(c echo.Context) error {
 func (s *Server) triggerSync(c echo.Context) error {
 	name := c.Param("name")
 
-	s.apps.RLock()
-	application, ok := s.apps.Get(name)
-	s.apps.RUnlock() // Release read lock before calling controller method that might acquire write lock
+	s.apps.Lock()
 
+	app, ok := s.apps.Get(name)
 	if !ok {
+		s.apps.Unlock() // Unlock before returning
+		s.logger.Warn("Manual sync requested for non-existent application", zap.String("name", name))
 		return echo.NewHTTPError(http.StatusNotFound, "Application not found")
 	}
 
@@ -291,10 +298,8 @@ func (s *Server) triggerSync(c echo.Context) error {
 	// adding a channel to each reconcileApp goroutine.
 	// For now, let's update status and log that a sync was *requested*.
 
-	// Acquire write lock to update status before signaling the controller
-	s.apps.Lock()
-	application.Status = "SyncRequested"
-	application.Message = "Manual sync requested."
+	app.Status = "SyncRequested"
+	app.Message = "Manual sync requested."
 	s.apps.Unlock()
 	// No need to save to disk here, controller's next loop or signal will handle it.
 

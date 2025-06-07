@@ -42,7 +42,7 @@ and does NOT delete any resources from the Kubernetes cluster.`,
 		}
 
 		// Remove the application from the list
-		apps.Delete(unregisterAppName) // Use Delete method
+		apps.Delete(unregisterAppName)
 		if err := app.SaveApplications(apps, app.DefaultAppConfigFile); err != nil {
 			return fmt.Errorf("failed to save applications after unregister: %w", err)
 		}
