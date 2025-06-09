@@ -34,28 +34,22 @@ const (
 )
 
 // ClientSet holds Kubernetes clients for dynamic interactions.
-//
 // It encapsulates the dynamic client, REST mapper, and configuration required
 // for interacting with Kubernetes resources.
 type ClientSet struct {
 	// logger is used for logging operations and errors.
 	logger *zap.Logger
-
 	// kubeconfigPath is the path to the kubeconfig file used for authentication.
 	kubeconfigPath string
-
 	// dynamicClient is the Kubernetes dynamic client for interacting with arbitrary resources.
 	dynamicClient dynamic.Interface
-
 	// mapper is the REST mapper for translating GroupVersionKind to REST resources.
 	mapper meta.RESTMapper
-
 	// config is the Kubernetes configuration used to initialize clients.
 	config *rest.Config
 }
 
 // NewClientSet initializes a Kubernetes client set.
-//
 // It attempts to use the provided kubeconfig file to build the configuration.
 // If the kubeconfig file is not provided or fails, it falls back to in-cluster configuration.
 func NewClientSet(logger *zap.Logger, kubeconfigPath string) (*ClientSet, error) {
@@ -106,7 +100,6 @@ func NewClientSet(logger *zap.Logger, kubeconfigPath string) (*ClientSet, error)
 }
 
 // ApplyManifests applies Kubernetes manifests from a given directory to the cluster.
-//
 // This function processes all YAML files in the specified directory, decodes them into
 // Kubernetes objects, and applies them to the cluster. It handles both creation and updates
 // of resources based on their existence in the cluster.
@@ -117,13 +110,13 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) []
 	err := filepath.WalkDir(manifestsDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			applyErrors = append(applyErrors, fmt.Errorf("filesystem error walking %s: %w", path, err))
-			return nil // Continue walking other files but log the error
+			return nil
 		}
 		if d.IsDir() {
-			return nil // Skip directories
+			return nil
 		}
 		if !strings.HasSuffix(d.Name(), ".yaml") && !strings.HasSuffix(d.Name(), ".yml") {
-			return nil // Only process YAML files
+			return nil
 		}
 
 		cs.logger.Debug("Processing manifest file", zap.String("file", path))
@@ -131,15 +124,13 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) []
 		if readErr != nil {
 			cs.logger.Error("Failed to read manifest file", zap.String("file", path), zap.Error(readErr))
 			applyErrors = append(applyErrors, fmt.Errorf("failed to read file %s: %w", path, readErr))
-			return nil // Continue to next file
+			return nil
 		}
 
-		// Split multi-document YAML files
 		decoder := yaml.NewDecodingSerializer(unstructured.UnstructuredJSONScheme)
 		objects := strings.Split(string(data), "\n---")
 
 		for i, objStr := range objects {
-			// Skip empty documents
 			trimmedObjStr := strings.TrimSpace(objStr)
 			if trimmedObjStr == "" {
 				continue
@@ -150,7 +141,7 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) []
 			if decodeErr != nil {
 				cs.logger.Error("Failed to decode YAML object", zap.String("file", path), zap.Int("documentIdx", i), zap.Error(decodeErr))
 				applyErrors = append(applyErrors, fmt.Errorf("failed to decode YAML from %s (doc %d): %w", path, i, decodeErr))
-				continue // Continue to next document
+				continue
 			}
 
 			if unstructuredObj.GetName() == "" {
@@ -164,14 +155,14 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) []
 				cs.logger.Error("Failed to get REST mapping for GVK",
 					zap.String("gvk", gvk.String()), zap.String("file", path), zap.Error(mappingErr))
 				applyErrors = append(applyErrors, fmt.Errorf("failed to get REST mapping for %s in %s: %w", gvk.String(), path, mappingErr))
-				continue // Continue to next document
+				continue
 			}
 
 			var dr dynamic.ResourceInterface
 			if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
 				// namespaced resources should specify the namespace
 				if unstructuredObj.GetNamespace() == "" {
-					unstructuredObj.SetNamespace("default") // Default to 'default' if not specified
+					unstructuredObj.SetNamespace("default")
 					cs.logger.Debug("Namespace not specified for namespaced resource, defaulting to 'default'",
 						zap.String("kind", gvk.Kind),
 						zap.String("name", unstructuredObj.GetName()))
@@ -195,7 +186,7 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) []
 						zap.String("namespace", unstructuredObj.GetNamespace()),
 						zap.Error(createErr))
 					applyErrors = append(applyErrors, fmt.Errorf("failed to create %s %s/%s from %s: %w", gvk.Kind, unstructuredObj.GetNamespace(), unstructuredObj.GetName(), path, createErr))
-					continue // Continue to next document
+					continue
 				}
 				cs.logger.Info("Created resource",
 					zap.String("kind", gvk.Kind),
@@ -213,7 +204,7 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) []
 						zap.String("namespace", unstructuredObj.GetNamespace()),
 						zap.Error(updateErr))
 					applyErrors = append(applyErrors, fmt.Errorf("failed to update %s %s/%s from %s: %w", gvk.Kind, unstructuredObj.GetNamespace(), unstructuredObj.GetName(), path, updateErr))
-					continue // Continue to next document
+					continue
 				}
 				cs.logger.Info("Updated resource",
 					zap.String("kind", gvk.Kind),
@@ -230,7 +221,6 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) []
 }
 
 // CheckConnectivity verifies connectivity to the Kubernetes cluster.
-//
 // It uses the Kubernetes clientset to fetch the server version, ensuring the cluster is reachable.
 func (cs *ClientSet) CheckConnectivity(ctx context.Context) error {
 	kubeClient, err := kubernetes.NewForConfig(cs.config)

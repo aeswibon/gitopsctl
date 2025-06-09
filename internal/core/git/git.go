@@ -15,7 +15,6 @@ import (
 
 // CloneOrPull performs a Git clone if the target directory doesn't contain a valid Git repository.
 // If the repository already exists, it performs a Git pull to fetch the latest changes.
-//
 // Returns the HEAD commit hash after the operation.
 func CloneOrPull(ctx context.Context, logger *zap.Logger, repoURL, branch, targetDir string) (string, error) {
 	var repo *gogit.Repository
@@ -85,7 +84,6 @@ func CloneOrPull(ctx context.Context, logger *zap.Logger, repoURL, branch, targe
 }
 
 // GetLatestCommitHash retrieves the HEAD commit hash of a local Git repository.
-//
 // This function opens the repository at the specified path and reads the current HEAD reference.
 func GetLatestCommitHash(logger *zap.Logger, repoPath string) (string, error) {
 	repo, err := gogit.PlainOpen(repoPath)
@@ -100,7 +98,6 @@ func GetLatestCommitHash(logger *zap.Logger, repoPath string) (string, error) {
 }
 
 // setupAuth provides authentication for Git operations.
-//
 // For SSH-based repositories, it attempts to use the SSH agent or default SSH keys.
 // For HTTPS-based repositories, it currently supports public repositories without authentication.
 // In production, this function could be extended to handle tokens, username/password, or specific key files.
@@ -120,7 +117,6 @@ func setupAuth(repoURL string) transport.AuthMethod {
 }
 
 // CleanUpRepo deletes the local repository directory.
-//
 // This function is used to clean up temporary directories created for Git operations.
 func CleanUpRepo(logger *zap.Logger, repoDir string) error {
 	logger.Info("Cleaning up local repository directory", zap.String("dir", repoDir))
@@ -131,7 +127,6 @@ func CleanUpRepo(logger *zap.Logger, repoDir string) error {
 }
 
 // CreateTempRepoDir creates a temporary directory for cloning a repository.
-//
 // The directory is created with a unique name to ensure isolation between different Git operations.
 func CreateTempRepoDir() (string, error) {
 	tmpDir, err := os.MkdirTemp("", "gitopsctl-repo-*")

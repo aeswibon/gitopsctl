@@ -5,10 +5,11 @@ import (
 	"net/url"
 	"os"
 	"strings"
+
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 // IsValidGitURL validates if a string is a basic Git URL (HTTPS or SSH format)
-//
 // It checks for common patterns like "git@host:repo.git" for SSH and "http(s)://host/repo.git" for HTTPS.
 func IsValidGitURL(s string) bool {
 	if strings.HasPrefix(s, "git@") && strings.Contains(s, ":") {
@@ -23,7 +24,6 @@ func IsValidGitURL(s string) bool {
 }
 
 // IsValidRepoPath validates if a string is a valid repository path
-//
 // It checks that the path is not empty or just slashes after trimming leading and trailing slashes.
 // This is useful to ensure that the path provided for manifests in the repository is meaningful.
 func IsValidRepoPath(s string) bool {
@@ -32,7 +32,6 @@ func IsValidRepoPath(s string) bool {
 }
 
 // ParseURL is a helper to parse a URL. Using net/url.ParseRequestURI for stricter parsing.
-//
 // It ensures that the URL has a scheme and host, which is important for Git URLs.
 func ParseURL(rawurl string) (*url.URL, error) {
 	u, err := url.ParseRequestURI(rawurl)
@@ -46,25 +45,42 @@ func ParseURL(rawurl string) (*url.URL, error) {
 	return u, nil
 }
 
-// IsValidKubeconfigFile validates if a string points to an existing, readable file.
-//
-// It checks if the file exists, is not a directory, and can be opened for reading.
-func IsValidKubeconfigFile(path string) bool {
+// ValidateKubeconfigFile checks if the provided kubeconfig file is valid.
+func ValidateKubeconfigFile(path string) error {
 	info, err := os.Stat(path)
 	if os.IsNotExist(err) {
-		return false
+		return fmt.Errorf("kubeconfig file not found: %s", path)
 	}
-	if err != nil { // Other errors like permission denied
-		return false
+	if err != nil {
+		return fmt.Errorf("error accessing kubeconfig file %s: %w", path, err)
 	}
-	if info.IsDir() { // Must not be a directory
-		return false
+
+	if info.IsDir() {
+		return fmt.Errorf("kubeconfig path is a directory, not a file: %s", path)
 	}
-	// Basic check for read permissions
-	if file, err := os.Open(path); err != nil {
-		return false
-	} else {
-		file.Close()
+
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("kubeconfig file is not readable: %s\nError: %w", path, err)
 	}
-	return true
+	file.Close()
+
+	if err := validateKubeconfigStructure(path); err != nil {
+		return fmt.Errorf("invalid kubeconfig file: %w", err)
+	}
+
+	return nil
+}
+
+func validateKubeconfigStructure(path string) error {
+	kubeconfig, err := clientcmd.LoadFromFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to parse kubeconfig: %w", err)
+	}
+
+	if len(kubeconfig.Clusters) == 0 {
+		return fmt.Errorf("kubeconfig contains no cluster definitions")
+	}
+
+	return nil
 }
