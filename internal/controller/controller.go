@@ -16,7 +16,19 @@ import (
 	"go.uber.org/zap"
 )
 
+// ClusterCommandType defines the type of command for a cluster.
+type ClusterCommandType string
+
+// ClusterCommand represents a command to be executed for a specific cluster.
+type ClusterCommand struct {
+	Type        ClusterCommandType
+	ClusterName string
+}
+
 const (
+	// ClusterCommandCheck indicates a command to check the health of a cluster.
+	// This is used to trigger a health check for the cluster's connectivity and status.
+	ClusterCommandCheck ClusterCommandType = "CHECK"
 	// MaxConsecutiveFailures defines the maximum number of consecutive failures
 	// before the reconciliation loop stops for an application.
 	MaxConsecutiveFailures = 5
@@ -55,7 +67,7 @@ type AppCommand struct {
 	// AppName is the name of the application to which this command applies.
 	AppName string
 	// Data can be used for additional parameters if needed (e.g., force sync, specific commit)
-	Data map[string]interface{}
+	Data map[string]any
 }
 
 // AppRuntime holds the context and cancel function for a running application goroutine.
@@ -84,6 +96,8 @@ type Controller struct {
 	cancel context.CancelFunc
 	// AppCommandChan is a channel for receiving commands to start, stop, or sync applications.
 	appCommandChan chan AppCommand
+	// ClusterCommandChan is a channel for receiving commands related to cluster health checks.
+	clusterCommandChan chan ClusterCommand
 	// RunningApps holds the currently running applications and their contexts.
 	runningApps map[string]*appRuntime
 	// mu protects the appContexts map to ensure thread-safe access.
@@ -98,13 +112,14 @@ type Controller struct {
 func NewController(logger *zap.Logger, apps *app.Applications, clusters *cluster.Clusters) *Controller {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Controller{
-		logger:         logger,
-		apps:           apps,
-		clusters:       clusters,
-		ctx:            ctx,
-		cancel:         cancel,
-		appCommandChan: make(chan AppCommand, 10), // Buffered channel for commands
-		runningApps:    make(map[string]*appRuntime),
+		logger:             logger,
+		apps:               apps,
+		clusters:           clusters,
+		ctx:                ctx,
+		cancel:             cancel,
+		appCommandChan:     make(chan AppCommand, 10),
+		clusterCommandChan: make(chan ClusterCommand, 10),
+		runningApps:        make(map[string]*appRuntime),
 	}
 }
 
@@ -114,18 +129,36 @@ func NewController(logger *zap.Logger, apps *app.Applications, clusters *cluster
 func (c *Controller) Start(appConfigFile string) error {
 	c.logger.Info("Starting GitOps controller...")
 
-	// Start the central command dispatcher goroutine
 	c.wg.Add(1)
 	go c.commandDispatcher(appConfigFile)
 
-	// Launch goroutines for existing applications found in config
-	c.apps.RLock() // Read lock for initial listing
+	c.wg.Add(1)
+	go c.clusterHealthChecker()
+
+	c.apps.RLock()
 	defer c.apps.RUnlock()
 
 	appsToStart := c.apps.List()
-	for _, application := range appsToStart {
-		// Send a START command for each existing application
-		c.appCommandChan <- AppCommand{Type: AppCommandStart, AppName: application.Name}
+	if len(appsToStart) > 0 {
+		c.logger.Info(fmt.Sprintf("Attempting to launch %d existing application reconciliation loops...", len(appsToStart)))
+		for _, application := range appsToStart {
+			c.appCommandChan <- AppCommand{Type: AppCommandStart, AppName: application.Name}
+		}
+	} else {
+		c.logger.Info("No existing applications found to launch at startup.")
+	}
+
+	c.clusters.RLock()
+	defer c.clusters.RUnlock()
+
+	clustersToCheck := c.clusters.List()
+	if len(clustersToCheck) > 0 {
+		c.logger.Info(fmt.Sprintf("Triggering initial health checks for %d clusters...", len(clustersToCheck)))
+		for _, cl := range clustersToCheck {
+			c.clusterCommandChan <- ClusterCommand{Type: ClusterCommandCheck, ClusterName: cl.Name}
+		}
+	} else {
+		c.logger.Info("No existing clusters found to check at startup.")
 	}
 
 	c.logger.Info("Initial application reconciliation loops dispatched.")
@@ -137,9 +170,10 @@ func (c *Controller) Start(appConfigFile string) error {
 // It cancels the context and waits for all goroutines to finish.
 func (c *Controller) Stop() {
 	c.logger.Info("Stopping GitOps controller...")
-	c.cancel()              // Signal all goroutines to stop
-	close(c.appCommandChan) // Close the command channel (dispatcher will exit after processing existing commands)
-	c.wg.Wait()             // Wait for all goroutines to finish
+	c.cancel()                  // Signal all goroutines to stop
+	close(c.appCommandChan)     // Close the command channel
+	close(c.clusterCommandChan) // Close the cluster command channel
+	c.wg.Wait()                 // Wait for all goroutines to finish
 	c.logger.Info("GitOps controller stopped.")
 }
 
@@ -164,6 +198,13 @@ func (c *Controller) TriggerSync(appName string) {
 	c.appCommandChan <- AppCommand{Type: AppCommandSync, AppName: appName}
 }
 
+// TriggerClusterHealthCheck sends a command to trigger an immediate health check for a cluster.
+//
+// This is useful for manually checking the connectivity and status of a cluster.
+func (c *Controller) TriggerClusterHealthCheck(clusterName string) {
+	c.clusterCommandChan <- ClusterCommand{Type: ClusterCommandCheck, ClusterName: clusterName}
+}
+
 // CommandDispatcher is the central goroutine that processes application commands.
 //
 // It listens for commands to start, stop, or sync applications and manages their reconciliation loops.
@@ -186,6 +227,83 @@ func (c *Controller) commandDispatcher(appConfigFile string) {
 			return
 		}
 	}
+}
+
+// ClusterHealthChecker periodically checks the health of registered clusters.
+//
+// It runs in a separate goroutine and checks cluster connectivity at regular intervals.
+func (c *Controller) clusterHealthChecker() {
+	defer c.wg.Done()
+	c.logger.Info("Cluster health checker started.")
+
+	ticker := time.NewTicker(cluster.DefaultClusterHealthCheckInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			c.clusters.RLock()
+			defer c.clusters.RUnlock()
+
+			clustersToCheck := c.clusters.List()
+			for _, cl := range clustersToCheck {
+				c.performClusterHealthCheck(c.ctx, cl)
+			}
+		case cmd, ok := <-c.clusterCommandChan:
+			if !ok {
+				c.logger.Info("Cluster command channel closed, health checker exiting.")
+				return
+			}
+			if cmd.Type == ClusterCommandCheck {
+				cl, exists := c.clusters.Get(cmd.ClusterName)
+				if exists {
+					c.logger.Info("Manual health check triggered for cluster", zap.String("cluster", cmd.ClusterName))
+					c.performClusterHealthCheck(c.ctx, cl)
+				} else {
+					c.logger.Warn("Attempted manual health check for non-existent cluster", zap.String("cluster", cmd.ClusterName))
+				}
+			}
+		case <-c.ctx.Done():
+			c.logger.Info("Main controller context cancelled, cluster health checker exiting.")
+			return
+		}
+	}
+}
+
+// PerformClusterHealthCheck performs a connectivity check for a given cluster and updates its status.
+//
+// It creates a Kubernetes client for the cluster and checks connectivity.
+func (c *Controller) performClusterHealthCheck(ctx context.Context, cl *cluster.Cluster) {
+	logger := c.logger.With(zap.String("cluster", cl.Name))
+	logger.Debug("Performing health check for cluster.")
+
+	// Create a client for the specific cluster
+	k8sClient, err := k8s.NewClientSet(logger, cl.KubeconfigPath)
+	if err != nil {
+		logger.Error("Failed to create K8s client for cluster health check", zap.Error(err))
+		cl.Status = "Error"
+		cl.Message = fmt.Sprintf("Failed to create K8s client: %v", err)
+	} else {
+		checkCtx, checkCancel := context.WithTimeout(ctx, K8sConnectTimeout)
+		defer checkCancel()
+		if err := k8sClient.CheckConnectivity(checkCtx); err != nil {
+			logger.Warn("Cluster connectivity check failed", zap.Error(err))
+			cl.Status = "Unreachable"
+			cl.Message = fmt.Sprintf("Connectivity failed: %v", err)
+		} else {
+			logger.Debug("Cluster connectivity check successful.")
+			cl.Status = "Active"
+			cl.Message = "Connectivity successful."
+		}
+	}
+	cl.LastCheckedAt = time.Now()
+
+	// Save cluster status
+	c.clusters.Lock()
+	if err := cluster.SaveClusters(c.clusters, cluster.DefaultClusterConfigFile); err != nil {
+		logger.Error("Failed to save cluster status to file", zap.Error(err))
+	}
+	c.clusters.Unlock()
 }
 
 // HandleAppCommand processes a single application command.

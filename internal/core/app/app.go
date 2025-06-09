@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"aeswibon.com/github/gitopsctl/internal/common"
 )
 
 const (
@@ -15,69 +17,56 @@ const (
 )
 
 // Application represents a single GitOps application managed by the controller.
-//
 // It encapsulates all the necessary metadata and operational details required
 // to monitor and synchronize the application's state between Git and Kubernetes.
 type Application struct {
 	// Name is a unique identifier for the application.
-	//
 	// It must be unique across all registered applications and should follow
 	// DNS subdomain naming conventions for compatibility with Kubernetes resources.
 	Name string `json:"name"`
 
 	// RepoURL specifies the URL of the Git repository where the application's manifests are stored.
-	//
 	// This URL can be HTTPS or SSH-based, depending on the user's authentication setup.
 	RepoURL string `json:"repoURL"`
 
 	// Branch defines the Git branch to monitor for changes.
-	//
 	// The controller will track this branch for updates and apply changes accordingly.
 	Branch string `json:"branch"`
 
 	// Path specifies the relative directory within the repository where Kubernetes manifests are located.
-	//
 	// This allows users to organize multiple applications or environments within a single repository.
 	Path string `json:"path"`
 
 	// ClusterName is the name of the Kubernetes cluster where the application will be deployed.
-	//
 	// This name is used for logging and status reporting purposes.
 	ClusterName string `json:"clusterName"`
 
 	// Interval is the polling interval as a string (e.g., "5m", "30s").
-	//
 	// It defines how frequently the controller should check the Git repository for changes.
 	Interval string `json:"interval"`
 
 	// PollingInterval is the parsed duration of the Interval field for internal use.
-	//
 	// This field is not serialized into JSON and is used for efficient time-based operations.
 	PollingInterval time.Duration `json:"-"`
 
 	// LastSyncedGitHash stores the Git commit hash of the last successfully synchronized state.
-	//
 	// This helps the controller detect changes and avoid redundant operations.
 	LastSyncedGitHash string `json:"lastSyncedGitHash,omitempty"`
 
 	// Status represents the current operational state of the application.
-	//
 	// Possible values include "Running", "Error", "Synced", "Pending", etc.
 	Status string `json:"status,omitempty"`
 
 	// Message provides additional context about the application's current state.
-	//
 	// It can include error details, success messages, or other relevant information.
 	Message string `json:"message,omitempty"`
 
 	// ConsecutiveFailures tracks the number of consecutive synchronization failures.
-	//
 	// This can be used to implement backoff logic or alerting mechanisms.
 	ConsecutiveFailures int `json:"consecutiveFailures,omitempty"`
 }
 
 // Applications represents a collection of Application objects.
-//
 // It uses a mutex to ensure thread-safe access to the underlying map of applications.
 type Applications struct {
 	Apps map[string]*Application
@@ -85,7 +74,6 @@ type Applications struct {
 }
 
 // NewApplications creates and initializes a new Applications collection.
-//
 // It returns an empty collection with a properly initialized map.
 func NewApplications() *Applications {
 	return &Applications{
@@ -94,14 +82,12 @@ func NewApplications() *Applications {
 }
 
 // Lock acquires a write lock on the Applications collection.
-//
 // This ensures exclusive access to the collection for write operations.
 func (a *Applications) Lock() {
 	a.mu.Lock()
 }
 
 // RLock acquires a read lock on the Applications collection.
-//
 // This allows multiple readers to access the collection concurrently,
 // while preventing write operations until the read lock is released.
 func (a *Applications) RLock() {
@@ -109,28 +95,24 @@ func (a *Applications) RLock() {
 }
 
 // RUnlock releases the read lock held on the Applications collection.
-//
 // It should always be called after RLock, typically using a defer statement.
 func (a *Applications) RUnlock() {
 	a.mu.RUnlock()
 }
 
 // Unlock releases the write lock held on the Applications collection.
-//
 // It should always be called after Lock, typically using a defer statement.
 func (a *Applications) Unlock() {
 	a.mu.Unlock()
 }
 
 // Add adds a new application to the collection.
-//
 // The caller is responsible for acquiring the necessary write lock before calling this method.
 func (a *Applications) Add(app *Application) {
 	a.Apps[app.Name] = app
 }
 
 // Get retrieves an application by its name.
-//
 // The caller is responsible for acquiring the necessary read or write lock before calling this method.
 func (a *Applications) Get(name string) (*Application, bool) {
 	app, ok := a.Apps[name]
@@ -138,7 +120,6 @@ func (a *Applications) Get(name string) (*Application, bool) {
 }
 
 // List returns a slice containing all applications in the collection.
-//
 // The caller is responsible for acquiring the necessary read or write lock before calling this method.
 func (a *Applications) List() []*Application {
 	list := make([]*Application, 0, len(a.Apps))
@@ -149,7 +130,6 @@ func (a *Applications) List() []*Application {
 }
 
 // Delete removes an application from the collection by its name.
-//
 // The caller is responsible for acquiring the necessary write lock before calling this method.
 func (a *Applications) Delete(name string) {
 	delete(a.Apps, name)
@@ -190,7 +170,6 @@ func LoadApplications(filePath string) (*Applications, error) {
 }
 
 // SaveApplications saves the current state of applications to the specified JSON file.
-//
 // The caller is responsible for acquiring the necessary lock before calling this method.
 func SaveApplications(apps *Applications, filePath string) error {
 	// Ensure the directory exists
@@ -214,4 +193,88 @@ func SaveApplications(apps *Applications, filePath string) error {
 		return fmt.Errorf("failed to write applications file %s: %w", filePath, err)
 	}
 	return nil
+}
+
+// ToTableHeaders implements cliutils.Renderable for table output headers.
+// It returns the headers for the table representation of the Application.
+func (a *Application) ToTableHeaders(details bool) []string {
+	if details {
+		return []string{"NAME", "REPO URL", "BRANCH", "PATH", "CLUSTER", "INTERVAL", "STATUS", "LAST SYNCED HASH", "FAILURES", "MESSAGE"}
+	}
+	return []string{"NAME", "REPO URL", "BRANCH", "PATH", "CLUSTER", "INTERVAL"}
+}
+
+// ToTableRow implements cliutils.Renderable for table output rows.
+// It returns a slice of strings representing the application data formatted for table display.
+func (a *Application) ToTableRow(details bool) []string {
+	hash := a.LastSyncedGitHash
+	if len(hash) > 7 {
+		hash = hash[:7]
+	}
+	if details {
+		return []string{
+			a.Name,
+			common.TruncateString(a.RepoURL, 30),
+			common.DefaultIfEmpty(a.Branch, "main"),
+			common.TruncateString(a.Path, 20),
+			a.ClusterName,
+			a.Interval,
+			a.Status,
+			hash,
+			fmt.Sprintf("%d", a.ConsecutiveFailures),
+			common.TruncateString(a.Message, 40),
+		}
+	}
+	return []string{
+		a.Name,
+		common.TruncateString(a.RepoURL, 30),
+		common.DefaultIfEmpty(a.Branch, "main"),
+		common.TruncateString(a.Path, 20),
+		a.ClusterName,
+		a.Interval,
+	}
+}
+
+// ToJSONMap implements cliutils.Renderable for JSON output.
+// It returns a map representation of the Application suitable for JSON serialization.
+func (a *Application) ToJSONMap() map[string]any {
+	return map[string]any{
+		"name":                 a.Name,
+		"repo_url":             a.RepoURL,
+		"branch":               common.DefaultIfEmpty(a.Branch, "main"),
+		"path":                 a.Path,
+		"cluster":              a.ClusterName,
+		"interval":             a.Interval,
+		"status":               a.Status,
+		"last_synced_hash":     a.LastSyncedGitHash,
+		"consecutive_failures": a.ConsecutiveFailures,
+		"message":              a.Message,
+	}
+}
+
+// ToYAMLString implements cliutils.Renderable for YAML output.
+// It returns a YAML-formatted string representation of the Application.
+func (a *Application) ToYAMLString() string {
+	// Build YAML string manually for simplicity
+	return fmt.Sprintf(`name: %s
+  repo_url: %s
+  branch: %s
+  path: %s
+  cluster: %s
+  interval: %s
+  status: %s
+  last_synced_hash: %s
+  consecutive_failures: %d
+  message: %s`,
+		a.Name,
+		a.RepoURL,
+		common.DefaultIfEmpty(a.Branch, "main"),
+		a.Path,
+		a.ClusterName,
+		a.Interval,
+		a.Status,
+		a.LastSyncedGitHash,
+		a.ConsecutiveFailures,
+		a.Message,
+	)
 }

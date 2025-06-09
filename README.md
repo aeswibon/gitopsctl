@@ -2,8 +2,30 @@
 
 **GitOpsCTL** (GitOps Control Tool) is a minimalistic, self-hosted, and externally managed GitOps controller written in Go. Designed to complement existing tools like ArgoCD and FluxCD, GitOpsCTL offers a simpler, more flexible alternative for Kubernetes application deployments, especially suited for smaller teams, edge environments, or scenarios requiring fine-grained external control.
 
+## Goals
+
+The project exists to provide a **small, explicit GitOps loop**: desired state lives in Git; GitOpsCTL **watches that Git**, **applies Kubernetes manifests** to **named clusters**, and exposes **CLI and HTTP API** so people and automation can register workloads, trigger syncs, and inspect status—without requiring a full in-cluster control plane such as Argo CD or Flux.
+
+In one sentence: **GitOpsCTL keeps Kubernetes aligned with Git using a minimal external controller.**
+
+Everything beyond that loop (rich UI, plugins, webhooks-first workflows, advanced policy) is optional evolution **after** reconciliation and operations are reliable and well documented.
+
+## Who this is for
+
+- **Platform and DevOps engineers** who want Git-as-source-of-truth deploys with a thin controller they can run beside their existing toolchain.
+- **SREs and on-call** who need logs, status, and a way to confirm what revision synced—or to kick a sync without digging through cluster internals only.
+- **Small teams, edge, or local Kubernetes setups** where a lightweight external reconciler is easier to own than a large GitOps stack in-cluster.
+- **Automation authors** integrating registration, sync, or health checks via the REST API (`/api/v1`) from pipelines or internal tools.
+
+### Who this is not for (today)
+
+- Teams that need **first-class Helm/OCI charts**, **DR admission hooks**, or **deep multi-tenant RBAC on the control plane** out of the box—those may land later; compare with mature GitOps products if that is your baseline.
+- Organizations that require **only Git webhook-driven sync** with no polling path as a supported primary mode (polling is the core today; webhooks are a planned enhancement).
+
 ## Table of Contents
 
+- [🎯 Goals](#goals)
+- [👥 Who this is for](#who-this-is-for)
 - [🚀 Why GitOpsCTL?](#why-gitopsctl)
 - [✨ Features (Phase 1)](#features-phase-1)
 - [🏗️ Architecture Goals](#architecture-goals)
@@ -12,13 +34,14 @@
   - [Clone the Repository](#clone-the-repository)
   - [Install Dependencies & Build](#install-dependencies--build)
 - [📖 Usage](#usage)
-  - [Register an Application](#register-an-application)
-  - [Check Application Status](#check-application-status)
-  - [Start the Controller](#start-the-controller)
-  - [Example Workflow](#example-workflow)
+  - [Register a cluster](#register-a-cluster)
+  - [Register an application](#register-an-application)
+  - [Check application status](#check-application-status)
+  - [Start the controller](#start-the-controller)
+  - [Example workflow](#example-workflow)
 - [⚙️ Configuration](#configuration)
-- [📂 Project Structure (Phase 1)](#project-structure-phase-1)
-- [➡️ Next Steps (Future Phases)](#next-steps-future-phases)
+- [📂 Project structure](#project-structure)
+- [➡️ Next steps (future phases)](#next-steps-future-phases)
 - [🤝 Contributing](#contributing)
 - [📄 License](#license)
 
@@ -33,13 +56,13 @@ Traditional GitOps tools are powerful but can be resource-intensive, opinionated
 
 ## Features (Phase 1)
 
-This initial phase focuses on the core reconciliation loop:
+This phase focuses on the core reconciliation loop and operational APIs:
 
-- **CLI for App Registration**: Easily define new applications with Git repository URLs, manifest paths, and target Kubernetes clusters via command-line.
-- **Git Polling**: Periodically checks registered Git repositories for changes to your application manifests.
-- **Kubernetes Manifest Sync**: Automatically applies Kubernetes YAML manifests to your target cluster(s) using client-go when changes are detected in Git.
-- **Single Kubeconfig Support**: Connects to a Kubernetes cluster using a specified kubeconfig file (works seamlessly with local setups like OrbStack for Mac users).
-- **Basic Logging & Status**: Provides console logging for operations and a CLI command to inspect the current sync status of registered applications.
+- **CLI for apps and clusters**: Register applications (Git URL, manifest path, poll interval, target cluster) and register multiple Kubernetes clusters (kubeconfig-backed) via command-line subcommands.
+- **Git polling**: Periodically checks registered Git repositories for manifest changes.
+- **Kubernetes manifest sync**: Applies YAML manifests to target cluster(s) with client-go when Git moves ahead.
+- **REST API**: Manage applications and clusters and trigger sync or cluster checks over HTTP (`gitopsctl start` serves `/api/v1` by default on `:8080`; use `--api-address` to change the bind address).
+- **Logging and status**: Structured logs and CLI commands to inspect registration and sync status.
 
 ## Architecture Goals
 
@@ -47,14 +70,14 @@ GitOpsCTL is built with a clear architectural vision:
 
 - **External Control Plane**: Operates outside the Kubernetes cluster, offering a broader view and management capabilities.
 - **Reconciler Pattern**: Continuously aligns the actual state of your applications in Kubernetes with the desired state defined in Git.
-- **Modular Design**: Components like the Git watcher, sync engine, and API (future) are loosely coupled for extensibility and maintainability.
+- **Modular design**: Git operations, Kubernetes apply, reconciliation, and HTTP API are separated so each can evolve without collapsing into one blob.
 - **Go-Native**: Leverages Go's concurrency model and client-go for efficient Kubernetes interactions.
 
 ## Getting Started
 
 ### Prerequisites
 
-- **Go (1.20+)**: Install Go on your system.
+- **Go (1.24+)**: Match `go.mod`; install Go on your system.
 - **Git**: Ensure Git is installed and configured on your machine.
 - **Kubernetes Cluster**: A running Kubernetes cluster.
   - **For Mac users**: We highly recommend OrbStack for a fast and lightweight local Kubernetes environment. Enable Kubernetes in OrbStack's settings.
@@ -78,38 +101,48 @@ This will create an executable binary named gitopsctl in your current directory.
 
 ## Usage
 
-### Register an Application
+### Register a cluster
 
-Define your GitOps application by specifying its Git repository, the path to its Kubernetes manifests, the target kubeconfig file, and the polling interval.
+Applications deploy to a **named cluster** that must exist in `configs/clusters.json`. Register one first (example uses your default kubeconfig):
 
 ```bash
-./gitopsctl register \
+./gitopsctl register-cluster \
+  --name production \
+  --kubeconfig ~/.kube/config
+```
+
+Short flags: `-n` for name, `-k` for kubeconfig. Optional: `--context`, `--test` to verify connectivity, `--dry-run`, `--force`.
+
+Clusters are stored in `configs/clusters.json`.
+
+### Register an application
+
+Point at a Git repo, manifest path **within that repo**, **cluster name** (must match a registered cluster), and poll interval:
+
+```bash
+./gitopsctl register-apps \
   --name my-nginx-app \
   --repo https://github.com/your-github-user/your-gitops-repo.git \
   --path k8s/manifests/nginx \
-  --kubeconfig ~/.kube/config \
+  --cluster production \
   --interval 30s
 ```
 
-- `--name`: A unique identifier for your application.
-- `--repo`: The URL of your Git repository (HTTPS or SSH).
-- `--path`: The subdirectory within your repository containing Kubernetes YAML files.
-- `--kubeconfig`: The path to your Kubernetes kubeconfig file. For OrbStack, `~/.kube/config` usually works.
-- `--interval`: How often GitOpsCTL should poll the Git repository for changes (e.g., 30s, 5m, 1h).
+Short flags: `-n` name, `-r` repo, `-p` path, `-c` cluster, `-i` interval. Optional: `-b`/`--branch` (default `main`), `--dry-run`, `--force`.
 
-After registration, an `applications.json` file will be created/updated in the `configs/` directory, storing your application definitions.
+After registration, `configs/applications.json` is created or updated.
 
-### Check Application Status
+### Check application status
 
-You can inspect the current state of all registered applications:
+Inspect registered applications (status, last synced commit, messages):
 
 ```bash
-./gitopsctl status
+./gitopsctl status-apps
 ```
 
-This will show details like the application name, Git repository, current status, and the last synced Git commit hash.
+Use flags such as `--output json`, `--details`, or `--sort-by name` for different views.
 
-### Start the Controller
+### Start the controller
 
 Run the main controller to begin the GitOps reconciliation loop:
 
@@ -117,29 +150,31 @@ Run the main controller to begin the GitOps reconciliation loop:
 ./gitopsctl start
 ```
 
-The controller will start polling your registered Git repositories, applying any detected changes to your Kubernetes cluster. You'll see logs in your terminal indicating its activity.
+The controller starts polling registered Git repositories and applying changes to your clusters. An HTTP API is started alongside it (default listen address `:8080`; override with `--api-address`, for example `--api-address 127.0.0.1:9090`). You'll see logs in your terminal indicating activity.
 
-To stop the controller, simply press `Ctrl+C`. It will perform a graceful shutdown.
+To stop the controller, press `Ctrl+C`. It performs a graceful shutdown (including the API server).
 
-### Example Workflow
+### Example workflow
 
-1. **Register**: Register an application as shown above.
-2. **Start**: Run `./gitopsctl start`. Observe the initial deployment of your manifests to Kubernetes. Verify with `kubectl get all -n <your-namespace>`.
-3. **Modify**: Make a change to a Kubernetes manifest file in your Git repository (e.g., change an image tag, increase replica count).
-4. **Commit & Push**: Commit your changes and push them to your remote Git repository.
-5. **Observe**: Within the specified `--interval`, GitOpsCTL will detect the change, pull the new version, and apply the updated manifests to your Kubernetes cluster. You'll see corresponding logs, and `kubectl get all -n <your-namespace>` will reflect the changes.
+1. **Register cluster**: `./gitopsctl register-cluster -n production -k ~/.kube/config` (add `--test` if you want a connectivity check).
+2. **Register application**: `./gitopsctl register-apps -n my-nginx-app -r <repo> -p k8s/manifests/nginx -c production -i 30s`.
+3. **Start**: Run `./gitopsctl start`. Observe the initial deployment of your manifests to Kubernetes. Verify with `kubectl get all -n <your-namespace>`.
+4. **Modify**: Change a manifest in Git (for example image tag or replicas).
+5. **Commit and push**: Push to the branch your app tracks (default `main` unless you set `-b`).
+6. **Observe**: Within the poll `--interval`, GitOpsCTL detects the update, pulls, and applies. Confirm with `./gitopsctl status-apps` and `kubectl`.
 
 ## Configuration
 
-Application definitions are stored in `configs/applications.json`. You can manually inspect or edit this file, but it's recommended to use the `gitopsctl register` command for consistency.
+Application definitions are stored in `configs/applications.json`. Cluster registrations are stored in `configs/clusters.json`. You can inspect or edit these files manually, but using the CLI (or API) keeps shape and validation consistent.
 
 ```json
 [
   {
     "name": "my-nginx-app",
     "repoURL": "https://github.com/your-github-user/your-gitops-repo.git",
+    "branch": "main",
     "path": "k8s/manifests/nginx",
-    "kubeconfigPath": "/Users/youruser/.kube/config",
+    "clusterName": "production",
     "interval": "30s",
     "lastSyncedGitHash": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0",
     "status": "Synced",
@@ -148,41 +183,34 @@ Application definitions are stored in `configs/applications.json`. You can manua
 ]
 ```
 
-## Project Structure (Phase 1)
+## Project structure
 
 ```txt
 gitopsctl/
-├── main.go               # Main entry point
-├── cmd/                  # Cobra CLI commands
-│   ├── root.go           # Root command setup
-│   ├── register.go       # Register application command
-│   ├── start.go          # Start controller command
-│   └── status.go         # Show application status command
+├── main.go               # Entry: delegates to cmd
+├── cmd/                  # Cobra CLI (app/cluster register, list, status, start, …)
 ├── internal/
-│   ├── app/              # Application definition and persistence logic
-│   │   ├── app.go
-│   ├── git/              # Git operations (clone, pull, hash tracking)
-│   │   ├── git.go
-│   ├── k8s/              # Kubernetes client-go operations (apply manifests)
-│   │   ├── k8s.go
-│   └── controller/       # Core reconciliation logic
-│       ├── controller.go
-│       └── types.go
-└── configs/              # Directory for application definitions
-    └── applications.json # Stores registered app data
+│   ├── api/              # Echo HTTP server and /api/v1 handlers
+│   ├── controller/       # Reconciliation loop and controller commands
+│   ├── core/             # Domains: app, cluster, git, k8s (load/save, integrations)
+│   ├── common/           # Shared types and validation helpers
+│   └── utils/            # CLI helpers (flags, list runners, …)
+└── configs/              # Created at runtime
+    ├── applications.json # Registered applications
+    └── clusters.json     # Registered clusters
 ```
 
-## Next Steps (Future Phases)
+## Next steps (future phases)
 
-This project is planned for phased development. Here's a glimpse of what's coming:
+Development is phased; some items below already exist in code.
 
-### Phase 2: API & Multi-cluster
+### API and multi-cluster (partially delivered)
 
-- REST API for managing applications programmatically.
-- Support for multiple Kubernetes clusters from a single controller instance.
-- Optional webhook triggers for faster Git event detection.
+- REST API for apps and clusters is available under `/api/v1` when the controller is running.
+- Multiple kubeconfig-backed clusters are supported from one controller process.
+- **Still planned**: optional webhook-driven sync as a first-class complement to polling.
 
-### Phase 3: UI, Extensibility, and Plugins
+### Phase 3: UI, extensibility, and plugins
 
 - A minimal web UI dashboard for visual monitoring.
 - Advanced sync strategies (manual approval, scheduled syncs).
