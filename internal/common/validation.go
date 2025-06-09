@@ -3,6 +3,7 @@ package common
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 )
 
@@ -43,4 +44,27 @@ func ParseURL(rawurl string) (*url.URL, error) {
 		return nil, fmt.Errorf("URL missing scheme or host")
 	}
 	return u, nil
+}
+
+// IsValidKubeconfigFile validates if a string points to an existing, readable file.
+//
+// It checks if the file exists, is not a directory, and can be opened for reading.
+func IsValidKubeconfigFile(path string) bool {
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return false
+	}
+	if err != nil { // Other errors like permission denied
+		return false
+	}
+	if info.IsDir() { // Must not be a directory
+		return false
+	}
+	// Basic check for read permissions
+	if file, err := os.Open(path); err != nil {
+		return false
+	} else {
+		file.Close()
+	}
+	return true
 }

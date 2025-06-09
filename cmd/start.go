@@ -12,6 +12,7 @@ import (
 	"aeswibon.com/github/gitopsctl/internal/api"
 	"aeswibon.com/github/gitopsctl/internal/controller"
 	"aeswibon.com/github/gitopsctl/internal/core/app"
+	"aeswibon.com/github/gitopsctl/internal/core/cluster"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 )
@@ -30,14 +31,24 @@ Optionally starts a REST API server for programmatic management.`,
 			return fmt.Errorf("failed to load applications: %w", err)
 		}
 
+		clusters, err := cluster.LoadClusters(cluster.DefaultClusterConfigFile)
+		if err != nil {
+			return fmt.Errorf("failed to load clusters: %w", err)
+		}
+
 		// Check if there are no registered applications
 		if len(apps.List()) == 0 {
 			logger.Warn("No applications registered. Please use 'gitopsctl register' to add an application.")
 		}
 
+		// Check if there are no registered clusters
+		if len(clusters.List()) == 0 {
+			logger.Warn("No clusters registered. Please use 'gitopsctl register' to add a cluster.")
+		}
+
 		// Create a new controller instance
-		ctrl := controller.NewController(logger, apps)
-		apiServer := api.NewServer(logger, apps, ctrl)
+		ctrl := controller.NewController(logger, apps, clusters)
+		apiServer := api.NewServer(logger, apps, clusters, ctrl)
 
 		// Set up signal handling for graceful shutdown
 		sigChan := make(chan os.Signal, 1)

@@ -2,24 +2,24 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
 	"aeswibon.com/github/gitopsctl/internal/common"
 	"aeswibon.com/github/gitopsctl/internal/core/app"
+	"aeswibon.com/github/gitopsctl/internal/core/cluster"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 )
 
 var (
 	// Flags for the register command
-	appName        string // Name of the application
-	repoURL        string // Git repository URL
-	branch         string // Branch in the repository (optional, default is "master")
-	pathInRepo     string // Path to Kubernetes manifests in the repository
-	kubeconfigPath string // Path to the kubeconfig file for the target cluster
-	interval       string // Polling interval for Git repository
+	appName     string // Name of the application
+	repoURL     string // Git repository URL
+	branch      string // Branch in the repository (optional, default is "master")
+	pathInRepo  string // Path to Kubernetes manifests in the repository
+	clusterName string // Name of the Kubernetes cluster
+	interval    string // Polling interval for Git repository
 )
 
 var registerCmd = &cobra.Command{
@@ -39,8 +39,8 @@ and which Kubernetes cluster they should be applied to.`,
 		if pathInRepo == "" {
 			return fmt.Errorf("path within repository (--path) is required")
 		}
-		if kubeconfigPath == "" {
-			return fmt.Errorf("kubeconfig path (--kubeconfig) is required")
+		if clusterName == "" {
+			return fmt.Errorf("cluster name (--cluster) is required")
 		}
 		if interval == "" {
 			return fmt.Errorf("polling interval (--interval) is required")
@@ -57,21 +57,17 @@ and which Kubernetes cluster they should be applied to.`,
 			return fmt.Errorf("invalid path within repository (--path): cannot be empty or just slashes")
 		}
 
-		info, err := os.Stat(kubeconfigPath)
-		if os.IsNotExist(err) {
-			return fmt.Errorf("kubeconfig file not found at '%s'", kubeconfigPath)
-		}
+		clusters, err := cluster.LoadClusters(cluster.DefaultClusterConfigFile)
 		if err != nil {
-			return fmt.Errorf("error accessing kubeconfig path '%s': %w", kubeconfigPath, err)
+			return fmt.Errorf("failed to load cluster configurations: %w", err)
 		}
-		if info.IsDir() {
-			return fmt.Errorf("kubeconfig path '%s' is a directory, not a file", kubeconfigPath)
-		}
-		// Basic check for read permissions (more robust permissions check might need syscalls or higher privileges)
-		if file, err := os.Open(kubeconfigPath); err != nil {
-			return fmt.Errorf("kubeconfig file at '%s' is not readable: %w", kubeconfigPath, err)
-		} else {
-			file.Close()
+
+		clusters.RLock()
+		defer clusters.RUnlock()
+
+		// Check if the specified cluster exists
+		if _, exists := clusters.Get(clusterName); !exists {
+			return fmt.Errorf("cluster '%s' not found. Please register the cluster first using 'gitopsctl cluster register'", clusterName)
 		}
 
 		// Validate interval
@@ -101,9 +97,9 @@ and which Kubernetes cluster they should be applied to.`,
 		newApp := &app.Application{
 			Name:                appName,
 			RepoURL:             repoURL,
-			Branch:              branch, // NEW: Assign branch
+			Branch:              branch,
 			Path:                pathInRepo,
-			KubeconfigPath:      kubeconfigPath,
+			ClusterName:         clusterName,
 			Interval:            interval,
 			PollingInterval:     parsedInterval,
 			Status:              "Pending",
@@ -121,9 +117,9 @@ and which Kubernetes cluster they should be applied to.`,
 		logger.Info("Application registered successfully!",
 			zap.String("name", newApp.Name),
 			zap.String("repo", newApp.RepoURL),
-			zap.String("branch", newApp.Branch), // NEW: Log branch
+			zap.String("branch", newApp.Branch),
 			zap.String("path", newApp.Path),
-			zap.String("kubeconfig", newApp.KubeconfigPath),
+			zap.String("cluster", newApp.ClusterName),
 			zap.String("interval", newApp.Interval),
 		)
 
@@ -140,6 +136,6 @@ func init() {
 	registerCmd.Flags().StringVarP(&repoURL, "repo", "r", "", "Git repository URL (e.g., https://github.com/user/repo.git or git@github.com:user/repo.git)")
 	registerCmd.Flags().StringVarP(&branch, "branch", "b", "master", "Branch in the repository (default is 'master')")
 	registerCmd.Flags().StringVarP(&pathInRepo, "path", "p", "", "Path within the repository to Kubernetes manifests (e.g., 'k8s/prod')")
-	registerCmd.Flags().StringVarP(&kubeconfigPath, "kubeconfig", "k", "", "Path to the kubeconfig file for the target cluster")
+	registerCmd.Flags().StringVarP(&clusterName, "cluster", "c", "", "Name of the target Kubernetes cluster (must be registered first)")
 	registerCmd.Flags().StringVarP(&interval, "interval", "i", "5m", "Polling interval for Git repository (e.g., '30s', '5m', '1h')")
 }

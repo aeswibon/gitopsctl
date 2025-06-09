@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"aeswibon.com/github/gitopsctl/internal/core/app"
+	"aeswibon.com/github/gitopsctl/internal/core/cluster"
 	"aeswibon.com/github/gitopsctl/internal/core/git"
 	"aeswibon.com/github/gitopsctl/internal/core/k8s"
 	"go.uber.org/zap"
@@ -75,6 +76,8 @@ type Controller struct {
 	logger *zap.Logger
 	// Apps holds the list of applications to be reconciled.
 	apps *app.Applications
+	// Clusters holds the list of clusters to which applications can be deployed.
+	clusters *cluster.Clusters
 	// Context is used to manage cancellation and timeouts for the reconciliation loops.
 	ctx context.Context
 	// Cancel function to stop the context and signal all goroutines to exit.
@@ -92,11 +95,12 @@ type Controller struct {
 // NewController creates a new Controller instance.
 //
 // It initializes the context and sets up the logger and applications.
-func NewController(logger *zap.Logger, apps *app.Applications) *Controller {
+func NewController(logger *zap.Logger, apps *app.Applications, clusters *cluster.Clusters) *Controller {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Controller{
 		logger:         logger,
 		apps:           apps,
+		clusters:       clusters,
 		ctx:            ctx,
 		cancel:         cancel,
 		appCommandChan: make(chan AppCommand, 10), // Buffered channel for commands
@@ -205,12 +209,27 @@ func (c *Controller) handleAppCommand(cmd AppCommand, appConfigFile string) {
 			return
 		}
 
+		c.clusters.RLock()
+		defer c.clusters.RUnlock()
+
+		_, clusterExists := c.clusters.Get(appConfig.ClusterName)
+		if !clusterExists {
+			c.logger.Error("Attempted to start application with non-existent cluster",
+				zap.String("app", cmd.AppName),
+				zap.String("cluster", appConfig.ClusterName))
+
+			appConfig.Status = "Error"
+			appConfig.Message = fmt.Sprintf("Cluster '%s' does not exist", appConfig.ClusterName)
+			appConfig.ConsecutiveFailures = 0               // Reset failures on critical error
+			c.saveAppStatus(appConfig, appConfigFile, true) // Force save on critical error
+			return
+		}
+
 		if runtime, ok := c.runningApps[cmd.AppName]; ok {
 			// If already running, stop the old one to restart with new config
 			c.logger.Info("Restarting application reconciliation loop", zap.String("app", cmd.AppName))
 			runtime.cancel() // Cancel the old context
-			// We don't delete from runningApps here; it's handled by the app's goroutine defer
-			// We just launch a new one. The old one will exit after processing its context cancellation.
+			// The deferred func in reconcileApp will clean up the old entry from runningApps
 		}
 
 		appCtx, appCancel := context.WithCancel(c.ctx) // New context for the app
@@ -224,8 +243,8 @@ func (c *Controller) handleAppCommand(cmd AppCommand, appConfigFile string) {
 	case AppCommandStop:
 		if runtime, ok := c.runningApps[cmd.AppName]; ok {
 			c.logger.Info("Stopping application reconciliation loop", zap.String("app", cmd.AppName))
-			runtime.cancel()                   // Cancel the specific app's context
-			delete(c.runningApps, cmd.AppName) // Remove from map immediately
+			runtime.cancel() // Cancel the specific app's context
+			// The deferred func in reconcileApp will clean up the old entry from runningApps
 		} else {
 			c.logger.Warn("Attempted to stop non-running application", zap.String("app", cmd.AppName))
 		}
@@ -253,7 +272,7 @@ func (c *Controller) stopAllAppGoroutines() {
 	for appName, runtime := range c.runningApps {
 		c.logger.Info("Stopping all application reconciliation loops during shutdown", zap.String("app", appName))
 		runtime.cancel()
-		delete(c.runningApps, appName)
+		// The deferred func in reconcileApp will clean up the old entry from runningApps
 	}
 }
 
@@ -281,6 +300,19 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 		zap.String("path", app.Path),
 		zap.Duration("interval", app.PollingInterval))
 
+	// Get cluster configuration for this application
+	c.clusters.RLock()
+	defer c.clusters.RUnlock()
+	targetCluster, exists := c.clusters.Get(app.ClusterName)
+	if !exists {
+		logger.Error("Cluster configuration not found for application", zap.String("cluster", app.ClusterName))
+		app.Status = "Error"
+		app.Message = fmt.Sprintf("Cluster '%s' does not exist", app.ClusterName)
+		app.ConsecutiveFailures = 0               // Reset failures on critical error
+		c.saveAppStatus(app, appConfigFile, true) // Force save on critical error
+		return
+	}
+
 	// Create a temporary directory for this app's Git repository
 	repoDir, err := git.CreateTempRepoDir()
 	if err != nil {
@@ -297,8 +329,8 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 		}
 	}()
 
-	// Initialize Kubernetes client for this application
-	k8sClient, err := k8s.NewClientSet(logger, app.KubeconfigPath)
+	// Use kubeconfig path from the cluster configuration
+	k8sClient, err := k8s.NewClientSet(logger, targetCluster.KubeconfigPath)
 	if err != nil {
 		logger.Error("Failed to create Kubernetes client for application", zap.Error(err))
 		app.Status = "Error"
@@ -310,7 +342,7 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 	// Perform an initial connectivity check with the Kubernetes cluster with a timeout
 	// This ensures the controller can connect to the cluster before starting the reconciliation loop.
 	// If the connection fails, we log the error and update the application's status accordingly.
-	logger.Info("Checking connectivity to Kubernetes cluster", zap.String("kubeconfig", app.KubeconfigPath))
+	logger.Info("Checking connectivity to Kubernetes cluster", zap.String("kubeconfig", targetCluster.KubeconfigPath))
 	connectCtx, connectCancel := context.WithTimeout(appCtx, K8sConnectTimeout)
 	defer connectCancel()
 	if err := k8sClient.CheckConnectivity(connectCtx); err != nil {
@@ -371,6 +403,7 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *app.Application, repoDir string, k8sClient *k8s.ClientSet, appConfigFile string) {
 	previousStatus := app.Status
 	previousHash := app.LastSyncedGitHash
+	previousFailures := app.ConsecutiveFailures
 
 	logger.Debug("Polling Git repository...")
 	currentHash, err := git.CloneOrPull(ctx, logger, app.RepoURL, app.Branch, repoDir)
@@ -386,7 +419,7 @@ func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *a
 	if currentHash == app.LastSyncedGitHash {
 		logger.Debug("No new changes detected in Git repository", zap.String("hash", currentHash))
 		// Only change status to Synced if it was previously an error, otherwise keep it as is
-		if app.Status == "Error" {
+		if app.Status == "Error" || app.Status == "Pending" || app.Status == "SyncRequested" {
 			app.Status = "Synced"
 			app.Message = fmt.Sprintf("Up to date at %s", currentHash)
 			app.ConsecutiveFailures = 0 // Reset failures on successful "check"
@@ -437,7 +470,7 @@ func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *a
 	app.ConsecutiveFailures = 0 // Reset failures on successful sync
 	logger.Info("Successfully applied Kubernetes manifests", zap.String("hash", currentHash))
 
-	c.saveAppStatus(app, appConfigFile, previousStatus != app.Status || previousHash != app.LastSyncedGitHash)
+	c.saveAppStatus(app, appConfigFile, previousStatus != app.Status || previousHash != app.LastSyncedGitHash || previousFailures != app.ConsecutiveFailures)
 }
 
 // saveAppStatus is a helper to update and persist the application's status.
@@ -472,6 +505,10 @@ func (c *Controller) saveAppStatus(appToSave *app.Application, appConfigFile str
 			c.logger.Debug("Application status saved to file", zap.String("app", appToSave.Name), zap.String("status", appToSave.Status))
 		}
 	} else {
-		c.logger.Debug("No significant change to application status, skipping save", zap.String("app", appToSave.Name))
+		c.logger.Debug("No significant change to application status or failures, skipping save",
+			zap.String("app", appToSave.Name),
+			zap.String("current_status", appToSave.Status),
+			zap.String("current_hash", appToSave.LastSyncedGitHash),
+			zap.Int("current_failures", appToSave.ConsecutiveFailures))
 	}
 }

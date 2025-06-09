@@ -10,6 +10,7 @@ import (
 	"aeswibon.com/github/gitopsctl/internal/common"
 	"aeswibon.com/github/gitopsctl/internal/controller"
 	"aeswibon.com/github/gitopsctl/internal/core/app"
+	"aeswibon.com/github/gitopsctl/internal/core/cluster"
 	"github.com/go-playground/validator/v10" // For validation
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -44,6 +45,8 @@ type Server struct {
 	logger *zap.Logger
 	// apps is the reference to the applications store, which holds registered applications.
 	apps *app.Applications
+	// clusters is the reference to the clusters store, which holds registered Kubernetes clusters.
+	clusters *cluster.Clusters
 	// controller is the reference to the main controller that manages application synchronization.
 	controller *controller.Controller
 }
@@ -51,7 +54,7 @@ type Server struct {
 // NewServer creates a new API server instance.
 //
 // It initializes the Echo instance, sets up middleware, and registers routes.
-func NewServer(logger *zap.Logger, applications *app.Applications, ctrl *controller.Controller) *Server {
+func NewServer(logger *zap.Logger, applications *app.Applications, clusters *cluster.Clusters, ctrl *controller.Controller) *Server {
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
@@ -63,6 +66,9 @@ func NewServer(logger *zap.Logger, applications *app.Applications, ctrl *control
 	})
 	v.RegisterValidation("path", func(fl validator.FieldLevel) bool {
 		return common.IsValidRepoPath(fl.Field().String())
+	})
+	v.RegisterValidation("kubeconfigfile", func(fl validator.FieldLevel) bool {
+		return common.IsValidKubeconfigFile(fl.Field().String())
 	})
 
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
@@ -77,7 +83,8 @@ func NewServer(logger *zap.Logger, applications *app.Applications, ctrl *control
 		e:          e,
 		logger:     logger,
 		apps:       applications,
-		controller: ctrl, // Store controller reference
+		clusters:   clusters,
+		controller: ctrl,
 	}
 
 	// Register API routes
@@ -98,6 +105,11 @@ func (s *Server) registerRoutes() {
 	v1.GET("/applications/:name", s.getApplicationStatus)
 	v1.DELETE("/applications/:name", s.unregisterApplication)
 	v1.POST("/applications/:name/sync", s.triggerSync)
+
+	v1.POST("/clusters", s.registerCluster)
+	v1.GET("/clusters", s.listClusters)
+	v1.GET("/clusters/:name", s.getCluster)
+	v1.DELETE("/clusters/:name", s.unregisterCluster)
 
 	// Health Check
 	s.e.GET("/health", s.healthCheck)
@@ -148,6 +160,15 @@ func (s *Server) registerApplication(c echo.Context) error {
 
 	req.Path = strings.TrimPrefix(strings.TrimSuffix(req.Path, "/"), "/")
 
+	// Validate the refernced cluster exists
+	s.clusters.RLock()
+	defer s.clusters.RUnlock()
+	_, exists := s.clusters.Get(req.ClusterName)
+	if !exists {
+		s.logger.Error("Cluster not found for application registration", zap.String("cluster", req.ClusterName))
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Cluster '%s' not found", req.ClusterName))
+	}
+
 	// Lock the applications map for modification
 	s.apps.Lock()
 	defer s.apps.Unlock()
@@ -160,9 +181,8 @@ func (s *Server) registerApplication(c echo.Context) error {
 		existingApp.RepoURL = req.RepoURL
 		existingApp.Branch = req.Branch
 		existingApp.Path = req.Path
-		existingApp.KubeconfigPath = req.KubeconfigPath
+		existingApp.ClusterName = req.ClusterName
 		existingApp.Interval = req.Interval
-		// Re-parse polling interval
 		parsedInterval, err := time.ParseDuration(req.Interval)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid interval format: %v", err))
@@ -184,7 +204,7 @@ func (s *Server) registerApplication(c echo.Context) error {
 			RepoURL:             req.RepoURL,
 			Branch:              req.Branch,
 			Path:                req.Path,
-			KubeconfigPath:      req.KubeconfigPath,
+			ClusterName:         req.ClusterName,
 			Interval:            req.Interval,
 			PollingInterval:     parsedInterval,
 			Status:              "Pending",
@@ -301,6 +321,109 @@ func (s *Server) triggerSync(c echo.Context) error {
 		Message: "Manual sync requested. The controller will process it shortly.",
 		Status:  "SyncRequested",
 	})
+}
+
+// RegisterCluster handles the registration of a new Kubernetes cluster.
+//
+// It binds the request payload to a RegisterClusterRequest struct, validates it,
+// and either adds a new cluster or updates an existing one.
+func (s *Server) registerCluster(c echo.Context) error {
+	req := new(RegisterClusterRequest)
+	if err := c.Bind(req); err != nil {
+		s.logger.Error("Failed to bind register cluster request", zap.Error(err))
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request payload")
+	}
+	if err := c.Validate(req); err != nil {
+		s.logger.Error("Failed to validate register cluster request", zap.Error(err))
+		return err
+	}
+
+	s.clusters.Lock()
+	defer s.clusters.Unlock()
+
+	if _, exists := s.clusters.Get(req.Name); exists {
+		s.logger.Warn("Cluster with this name already exists. Updating its kubeconfig.", zap.String("name", req.Name))
+	}
+
+	newCluster := &cluster.Cluster{
+		Name:           req.Name,
+		KubeconfigPath: req.KubeconfigPath,
+		RegisteredAt:   time.Now(),
+		Status:         "Active",
+		Message:        "Cluster registered successfully.",
+	}
+	s.clusters.Add(newCluster)
+
+	if err := cluster.SaveClusters(s.clusters, cluster.DefaultClusterConfigFile); err != nil {
+		s.logger.Error("Failed to save clusters after registration", zap.Error(err))
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to save cluster configuration")
+	}
+
+	s.logger.Info("Cluster registered/updated via API", zap.String("name", req.Name))
+	return c.JSON(http.StatusOK, map[string]string{"message": "Cluster registered/updated successfully", "name": req.Name})
+}
+
+// ListClusters handles the retrieval of all registered Kubernetes clusters.
+//
+// It returns a list of ClusterResponse objects containing the details of each cluster.
+func (s *Server) listClusters(c echo.Context) error {
+	s.clusters.RLock()
+	defer s.clusters.RUnlock()
+
+	var responses []ClusterResponse
+	for _, cl := range s.clusters.List() {
+		responses = append(responses, ConvertClusterToResponse(cl))
+	}
+	return c.JSON(http.StatusOK, responses)
+}
+
+// GetCluster retrieves the details of a specific Kubernetes cluster by name.
+//
+// It returns a ClusterResponse object containing the cluster's details.
+// If the cluster does not exist, it returns a 404 Not Found error.
+func (s *Server) getCluster(c echo.Context) error {
+	name := c.Param("name")
+
+	s.clusters.RLock()
+	defer s.clusters.RUnlock()
+
+	cl, ok := s.clusters.Get(name)
+	if !ok {
+		return echo.NewHTTPError(http.StatusNotFound, "Cluster not found")
+	}
+	return c.JSON(http.StatusOK, ConvertClusterToResponse(cl))
+}
+
+// UnregisterCluster handles the removal of a Kubernetes cluster by name.
+//
+// It deletes the cluster from the clusters store and saves the updated configuration.
+func (s *Server) unregisterCluster(c echo.Context) error {
+	name := c.Param("name")
+
+	s.clusters.Lock()
+	defer s.clusters.Unlock()
+
+	_, exists := s.clusters.Get(name)
+	if !exists {
+		return echo.NewHTTPError(http.StatusNotFound, "Cluster not found")
+	}
+
+	s.apps.RLock()
+	defer s.apps.RUnlock()
+	for _, app := range s.apps.List() {
+		if app.ClusterName == name {
+			return echo.NewHTTPError(http.StatusConflict, fmt.Sprintf("Cluster '%s' is in use by application '%s'. Please unregister or update applications first.", name, app.Name))
+		}
+	}
+
+	s.clusters.Delete(name)
+	if err := cluster.SaveClusters(s.clusters, cluster.DefaultClusterConfigFile); err != nil {
+		s.logger.Error("Failed to save clusters after unregister", zap.Error(err))
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to remove cluster configuration")
+	}
+
+	s.logger.Info("Cluster unregistered via API", zap.String("name", name))
+	return c.JSON(http.StatusOK, map[string]string{"message": "Cluster unregistered successfully", "name": name})
 }
 
 // HealthCheck is a simple endpoint to check if the API server is running.

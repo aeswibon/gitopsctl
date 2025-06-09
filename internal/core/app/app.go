@@ -40,10 +40,10 @@ type Application struct {
 	// This allows users to organize multiple applications or environments within a single repository.
 	Path string `json:"path"`
 
-	// KubeconfigPath is the filesystem path to the kubeconfig file used to access the target Kubernetes cluster.
+	// ClusterName is the name of the Kubernetes cluster where the application will be deployed.
 	//
-	// This file contains credentials and cluster information required for the controller to interact with the cluster.
-	KubeconfigPath string `json:"kubeconfigPath"`
+	// This name is used for logging and status reporting purposes.
+	ClusterName string `json:"clusterName"`
 
 	// Interval is the polling interval as a string (e.g., "5m", "30s").
 	//

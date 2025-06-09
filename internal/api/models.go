@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"aeswibon.com/github/gitopsctl/internal/core/app"
+	"aeswibon.com/github/gitopsctl/internal/core/cluster"
 )
 
 // RegisterAppRequest defines the payload for creating/registering a new application.
@@ -18,8 +19,8 @@ type RegisterAppRequest struct {
 	Branch string `json:"branch" validate:"required"`
 	// Path is the directory path within the repository where the manifests are located.
 	Path string `json:"path" validate:"required"`
-	// KubeconfigPath is the path to the kubeconfig file used to connect to the Kubernetes cluster.
-	KubeconfigPath string `json:"kubeconfigPath" validate:"required"`
+	// ClusterName is the name of the Kubernetes cluster where the application will be deployed.
+	ClusterName string `json:"clusterName" validate:"required"`
 	// Interval is the frequency at which the application should be synced with the Git repository.
 	Interval string `json:"interval" validate:"required"`
 }
@@ -37,8 +38,8 @@ type ApplicationResponse struct {
 	Branch string `json:"branch"`
 	// Path is the directory path within the repository where the manifests are located.
 	Path string `json:"path"`
-	// KubeconfigPath is the path to the kubeconfig file used to connect to the Kubernetes cluster.
-	KubeconfigPath string `json:"kubeconfigPath"`
+	// ClusterName is the name of the Kubernetes cluster where the application will be deployed.
+	ClusterName string `json:"clusterName"`
 	// Interval is the frequency at which the application should be synced with the Git repository.
 	Interval string `json:"interval"`
 	// LastSyncedGitHash is the last commit hash that was successfully synced from the Git repository.
@@ -51,6 +52,32 @@ type ApplicationResponse struct {
 	ConsecutiveFailures int `json:"consecutiveFailures"`
 	// LastUpdated is the timestamp of the last update to the application's status.
 	LastUpdated string `json:"lastUpdated"`
+}
+
+// RegisterClusterRequest defines the payload for registering a new cluster.
+//
+// This structure is used in the API requests to register a new Kubernetes cluster with the GitOps controller.
+type RegisterClusterRequest struct {
+	// Name is the unique identifier for the cluster.
+	Name string `json:"name" validate:"required"`
+	// KubeconfigPath is the file path to the kubeconfig file for accessing the Kubernetes cluster.
+	KubeconfigPath string `json:"kubeconfigPath" validate:"required,kubeconfigfile"`
+}
+
+// ClusterResponse defines the structure for returning cluster details via the API.
+//
+// This structure is used in the API responses to provide information about registered clusters.
+type ClusterResponse struct {
+	// Name is the unique identifier for the cluster.
+	Name string `json:"name"`
+	// KubeconfigPath is the file path to the kubeconfig file for accessing the Kubernetes cluster.
+	KubeconfigPath string `json:"kubeconfigPath"`
+	// RegisteredAt is the timestamp when the cluster was registered with the GitOps controller.
+	RegisteredAt string `json:"registeredAt"`
+	// Status indicates the current status of the cluster (e.g., "active", "inactive", "error").
+	Status string `json:"status"`
+	// Message provides additional information about the cluster's status, such as error messages or warnings.
+	Message string `json:"message"`
 }
 
 // ErrorResponse defines a standard error response structure.
@@ -105,12 +132,25 @@ func ConvertAppToResponse(app *app.Application) ApplicationResponse {
 		RepoURL:             app.RepoURL,
 		Branch:              app.Branch,
 		Path:                app.Path,
-		KubeconfigPath:      app.KubeconfigPath,
+		ClusterName:         app.ClusterName,
 		Interval:            app.Interval,
 		LastSyncedGitHash:   app.LastSyncedGitHash,
 		Status:              app.Status,
 		Message:             app.Message,
 		ConsecutiveFailures: app.ConsecutiveFailures,
-		LastUpdated:         time.Now().Format(time.RFC3339), // Placeholder, can be more precise if app.Application stores update time
+		LastUpdated:         time.Now().Format(time.RFC3339),
+	}
+}
+
+// ConvertClusterToResponse converts an internal cluster.Cluster struct to an API-friendly ClusterResponse.
+//
+// This function extracts relevant fields from the cluster.Cluster struct and formats them for API responses.
+func ConvertClusterToResponse(cl *cluster.Cluster) ClusterResponse {
+	return ClusterResponse{
+		Name:           cl.Name,
+		KubeconfigPath: cl.KubeconfigPath,
+		RegisteredAt:   cl.RegisteredAt.Format(time.RFC3339),
+		Status:         cl.Status,
+		Message:        cl.Message,
 	}
 }

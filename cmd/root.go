@@ -54,8 +54,12 @@ func Execute() {
 }
 
 func init() {
-	// Define persistent flags and configuration settings
-	// Cobra supports persistent flags, which, if defined here,
-	// will be available to all subcommands.
+	rootCmd.AddCommand(registerCmd)
+	rootCmd.AddCommand(unregisterCmd)
+	rootCmd.AddCommand(statusCmd)
+	rootCmd.AddCommand(startCmd)
+	rootCmd.AddCommand(registerClusterCmd)
+	rootCmd.AddCommand(unregisterClusterCmd)
+	rootCmd.AddCommand(listClustersCmd)
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.gitopsctl.yaml)")
 }
