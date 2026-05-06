@@ -56,6 +56,8 @@ Traditional GitOps tools are powerful but can be resource-intensive, opinionated
 
 ## Features (Phase 1)
 
+A concrete **Phase 1 checklist** (what is done vs still recommended before calling Phase 1 “complete”) lives in [docs/phase1.md](docs/phase1.md).
+
 This phase focuses on the core reconciliation loop and operational APIs:
 
 - **CLI for apps and clusters**: Register applications (Git URL, manifest path, poll interval, target cluster) and register multiple Kubernetes clusters (kubeconfig-backed) via command-line subcommands.

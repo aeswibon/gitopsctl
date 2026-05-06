@@ -8,9 +8,7 @@ import (
 )
 
 // Sync handles manual sync requests for an application.
-// It updates the application's status to "SyncRequested" and logs the request.
-// This is a placeholder for triggering an immediate sync, which would typically involve signaling the controller
-// to wake up the specific application's goroutine and perform a sync now.
+// It asks the controller to run an immediate sync for the named app and returns 202 Accepted.
 func (h *Handler) Sync(c echo.Context) error {
 	name := c.Param("name")
 

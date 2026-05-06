@@ -47,16 +47,16 @@ and which Kubernetes cluster they should be applied to.
 The controller will periodically poll the Git repository and apply any
 changes to the specified Kubernetes cluster.`,
 	Example: `  # Register a simple application
-  gitopsctl app register -n myapp -r https://github.com/user/repo.git -p k8s/prod -c production
+  gitopsctl register-apps -n myapp -r https://github.com/user/repo.git -p k8s/prod -c production
 
   # Register with custom branch and interval
-  gitopsctl app register -n myapp -r git@github.com:user/repo.git -b develop -p manifests -c staging -i 10m
+  gitopsctl register-apps -n myapp -r git@github.com:user/repo.git -b develop -p manifests -c staging -i 10m
 
   # Preview registration without saving (dry run)
-  gitopsctl app register -n myapp -r https://github.com/user/repo.git -p k8s -c prod --dry-run
+  gitopsctl register-apps -n myapp -r https://github.com/user/repo.git -p k8s -c prod --dry-run
 
   # Force overwrite existing application
-  gitopsctl app register -n myapp -r https://github.com/user/repo.git -p k8s -c prod --force`,
+  gitopsctl register-apps -n myapp -r https://github.com/user/repo.git -p k8s -c prod --force`,
 	Args: cobra.NoArgs,
 	RunE: runRegisterCommand,
 }
@@ -161,7 +161,7 @@ func verifyClusterExists(clusterName string) error {
 	defer clusters.RUnlock()
 
 	if _, exists := clusters.Get(clusterName); !exists {
-		return fmt.Errorf("cluster '%s' not found\nUse 'gitopsctl cluster list' to see available clusters or 'gitopsctl cluster register' to add a new one", clusterName)
+		return fmt.Errorf("cluster '%s' not found\nUse 'gitopsctl list-clusters' to see registered clusters or 'gitopsctl register-cluster' to add one", clusterName)
 	}
 
 	return nil
@@ -265,9 +265,9 @@ func saveAndConfirmApplication(apps *app.Applications, newApp *app.Application, 
 	fmt.Printf("  Status:         %s\n", newApp.Status)
 
 	fmt.Printf("\nNext steps:\n")
-	fmt.Printf("  • Monitor sync status: gitopsctl app status %s\n", newApp.Name)
-	fmt.Printf("  • View application logs: gitopsctl app logs %s\n", newApp.Name)
-	fmt.Printf("  • Trigger manual sync: gitopsctl app sync %s\n", newApp.Name)
+	fmt.Printf("  • Monitor sync status: gitopsctl status-apps\n")
+	fmt.Printf("  • Run controller + API: gitopsctl start\n")
+	fmt.Printf("  • Trigger manual sync (with controller running): curl -X POST http://localhost:8080/api/v1/applications/%s/sync\n", newApp.Name)
 
 	logger.Info("Application registered successfully",
 		zap.String("name", newApp.Name),

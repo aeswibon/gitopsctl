@@ -39,27 +39,23 @@ var registerClusterCmd = &cobra.Command{
 This command validates the kubeconfig file, optionally tests connectivity,
 and stores the cluster configuration for use by GitOps applications.
 
-The kubeconfig file must be accessible and contain valid cluster credentials.
-You can specify a particular context if the kubeconfig contains multiple clusters.
+If -k/--kubeconfig is omitted, the path is taken from $KUBECONFIG or ~/.kube/config when present.
 
 Examples:
-  # Register a cluster with default kubeconfig
-  gitopsctl cluster register -n production -k ~/.kube/config
+  # Register using explicit kubeconfig
+  gitopsctl register-cluster -n production -k ~/.kube/config
 
-  # Register with specific context
-  gitopsctl cluster register -n staging -k ~/.kube/config --context staging-ctx
-
-  # Register with description and connection test
-  gitopsctl cluster register -n prod -k /path/to/kubeconfig --description "Production EKS cluster" --test
+  # Register with connectivity check
+  gitopsctl register-cluster -n prod -k /path/to/kubeconfig --test
 
   # Preview registration without saving
-  gitopsctl cluster register -n test -k ~/.kube/config --dry-run
+  gitopsctl register-cluster -n test -k ~/.kube/config --dry-run
 
-  # Force overwrite existing cluster
-  gitopsctl cluster register -n prod -k ~/.kube/config --force
+  # Force overwrite existing cluster registration
+  gitopsctl register-cluster -n prod -k ~/.kube/config --force
 
-  # Auto-detect kubeconfig from environment
-  gitopsctl cluster register -n local`,
+  # Auto-detect kubeconfig (same rules as kubectl)
+  gitopsctl register-cluster -n local`,
 	RunE: runRegisterClusterCommand,
 }
 
@@ -231,9 +227,9 @@ func saveAndConfirmCluster(newCluster *clustercore.Cluster, isUpdate bool) error
 	fmt.Printf("  Status:     %s\n", newCluster.Status)
 
 	fmt.Printf("\nNext steps:\n")
-	fmt.Printf("  • Test connectivity: gitopsctl cluster test %s\n", newCluster.Name)
-	fmt.Printf("  • List all clusters: gitopsctl cluster list\n")
-	fmt.Printf("  • Register applications: gitopsctl app register --cluster %s\n", newCluster.Name)
+	fmt.Printf("  • List clusters: gitopsctl list-clusters\n")
+	fmt.Printf("  • Check cluster rows in status: gitopsctl status-clusters\n")
+	fmt.Printf("  • Register an application targeting this cluster: gitopsctl register-apps -c %s ...\n", newCluster.Name)
 
 	logger.Info("Cluster registered successfully",
 		zap.String("name", newCluster.Name),
@@ -256,7 +252,6 @@ func init() {
 	registerClusterCmd.Flags().BoolVar(&testConnection, "test", false, "Test cluster connectivity during registration")
 
 	registerClusterCmd.MarkFlagRequired("name")
-	registerClusterCmd.MarkFlagRequired("kubeconfig")
 	registerClusterCmd.RegisterFlagCompletionFunc("kubeconfig", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{}, cobra.ShellCompDirectiveFilterFileExt
 	})

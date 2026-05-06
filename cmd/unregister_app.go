@@ -32,13 +32,13 @@ in the cluster until manually removed.
 Use --dry-run to preview what will be unregistered.
 Use --force to skip confirmation prompts.`,
 	Example: `  # Unregister an application with confirmation
-  gitopsctl app unregister --name myapp
+  gitopsctl unregister -n myapp
 
   # Preview unregistration without applying changes
-  gitopsctl app unregister --name myapp --dry-run
+  gitopsctl unregister -n myapp --dry-run
 
   # Force unregister without confirmation
-  gitopsctl app unregister --name myapp --force`,
+  gitopsctl unregister -n myapp --force`,
 	Args: cobra.NoArgs,
 	RunE: runUnregisterCommand,
 }
@@ -108,7 +108,7 @@ func handleAppNotFound(appName string) error {
 		zap.String("name", appName))
 
 	fmt.Printf("Application '%s' is not registered. Nothing to unregister.\n", appName)
-	fmt.Printf("\nTip: Use 'gitopsctl app list' to see all registered applications.\n")
+	fmt.Printf("\nTip: Use 'gitopsctl list-apps' to see all registered applications.\n")
 
 	return nil
 }
@@ -175,9 +175,9 @@ func performUnregistration(apps *app.Applications, targetApp *app.Application) e
 
 	fmt.Printf("\nNext steps:\n")
 	fmt.Printf("  • To manually clean up resources: kubectl delete -f <manifests> --namespace <namespace>\n")
-	fmt.Printf("  • To re-register: gitopsctl app register --name %s --repo %s --path %s --cluster %s\n",
+	fmt.Printf("  • To re-register: gitopsctl register-apps -n %s -r %s -p %s -c %s\n",
 		targetApp.Name, targetApp.RepoURL, targetApp.Path, targetApp.ClusterName)
-	fmt.Printf("  • To list remaining apps: gitopsctl app list\n")
+	fmt.Printf("  • To list remaining apps: gitopsctl list-apps\n")
 
 	return nil
 }

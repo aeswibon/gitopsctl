@@ -180,7 +180,7 @@ func VerifyCluster(clusterName string) (*Cluster, bool, error) {
 
 	cluster, exists := clusters.Get(clusterName)
 	if !exists {
-		return nil, false, fmt.Errorf("cluster '%s' not found\nUse 'gitopsctl cluster list' to see available clusters or 'gitopsctl cluster register' to add a new one", clusterName)
+		return nil, false, fmt.Errorf("cluster '%s' not found\nUse 'gitopsctl list-clusters' to see registered clusters or 'gitopsctl register-cluster' to add one", clusterName)
 	}
 	return cluster, exists, nil
 }

@@ -19,22 +19,22 @@ var statusClusterCmd = &cobra.Command{
 	Long:    `Displays the current health status, last checked time, and messages for all registered Kubernetes clusters.`,
 	Example: `
   # Show status of all registered clusters
-  gitopsctl cluster status
+  gitopsctl status-clusters
 
   # Show status of clusters with details
-  gitopsctl cluster status --details
- 
+  gitopsctl status-clusters --details
+
   # Filter clusters by status (healthy, error, pending)
-  gitopsctl cluster status --status healthy
+  gitopsctl status-clusters --status healthy
 
-	# Sort clusters by name or status
-	gitopsctl cluster status --sort-by name
+  # Sort clusters by name or status
+  gitopsctl status-clusters --sort-by name
 
-	# Output in JSON format
-	gitopsctl cluster status --output json
+  # Output in JSON format
+  gitopsctl status-clusters --output json
 
- 	# Compact view without headers
-	gitopsctl cluster status --no-header
+  # Compact view without headers
+  gitopsctl status-clusters --no-header
 `,
 	RunE: func(cmdCobra *cobra.Command, args []string) error {
 		clusters, err := cluster.LoadClusters(cluster.DefaultClusterConfigFile)
@@ -43,7 +43,7 @@ var statusClusterCmd = &cobra.Command{
 		}
 
 		if len(clusters.List()) == 0 {
-			logger.Info("No clusters registered. Use 'gitopsctl cluster register' to add one.")
+			logger.Info("No clusters registered. Use 'gitopsctl register-cluster' to add one.")
 			return nil
 		}
 

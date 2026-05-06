@@ -23,22 +23,22 @@ This command shows application names, repository URLs, branches, paths, clusters
 You can filter, sort, and format the output according to your needs.`,
 	Example: `
   # List all registered applications in table format
-  gitopsctl app list-apps
+  gitopsctl list-apps
 
   # List only active applications
-  gitopsctl app list-apps --status active
+  gitopsctl list-apps --status active
 
   # List applications sorted by name
-  gitopsctl app list-apps --sort-by name
+  gitopsctl list-apps --sort-by name
 
   # Show detailed information for each application
-  gitopsctl app list-apps --details
+  gitopsctl list-apps --details
 
   # Output as JSON for automation
-  gitopsctl app list-apps --output json
+  gitopsctl list-apps --output json
 
   # Compact view without headers
-  gitopsctl app list-apps --no-header
+  gitopsctl list-apps --no-header
 	`,
 	RunE: runListAppsCommand,
 }
@@ -121,13 +121,14 @@ func handleEmptyAppsForList(statusFilter string) error {
 	if statusFilter == "" || strings.ToLower(statusFilter) == "all" {
 		fmt.Println("📋 No apps registered yet")
 		fmt.Println("\n💡 Get started:")
-		fmt.Println("   gitopsctl app register --help")
-		fmt.Println("   gitopsctl app register -n myapp -c mycluster -r <repo-url>")
+		fmt.Println("   gitopsctl register-apps --help")
+		fmt.Println("   gitopsctl register-cluster -n mycluster -k ~/.kube/config")
+		fmt.Println("   gitopsctl register-apps -n myapp -c mycluster -r <repo-url> -p <path>")
 	} else {
 		fmt.Printf("📋 No apps found with status '%s'\n", statusFilter)
 		fmt.Println("\n💡 Try:")
-		fmt.Println("   gitopsctl app list --status all")
-		fmt.Println("   gitopsctl app list")
+		fmt.Println("   gitopsctl list-apps --status all")
+		fmt.Println("   gitopsctl list-apps")
 	}
 	return nil
 }

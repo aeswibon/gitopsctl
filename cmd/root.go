@@ -10,8 +10,7 @@ import (
 )
 
 var (
-	cfgFile string
-	logger  *zap.Logger
+	logger *zap.Logger
 )
 
 var (
@@ -82,5 +81,4 @@ func init() {
 	rootCmd.AddGroup(appGroup)
 	rootCmd.AddGroup(clusterGroup)
 	rootCmd.AddCommand(startCmd)
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.gitopsctl.yaml)")
 }

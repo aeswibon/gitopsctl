@@ -15,22 +15,22 @@ var statusAppCmd = &cobra.Command{
 	Long:    `Displays the current status, last synced commit, and messages for all registered GitOps applications.`,
 	Example: `
   # Show status of all registered applications
-  gitopsctl app status
+  gitopsctl status-apps
 
   # Show status of applications with details
-  gitopsctl app status --details
+  gitopsctl status-apps --details
 
   # Filter applications by status (synced, error, pending, stopped)
-  gitopsctl app status --status synced
-	
+  gitopsctl status-apps --status synced
+
   # Sort applications by name or status
-  gitopsctl app status --sort-by name
+  gitopsctl status-apps --sort-by name
 
   # Output in JSON format
-	gitopsctl app status --output json
+  gitopsctl status-apps --output json
 
   # Compact view without headers
-	gitopsctl app status --no-header
+  gitopsctl status-apps --no-header
 	`,
 	RunE: runStatusAppsCommand,
 }

@@ -118,13 +118,13 @@ func handleEmptyClustersForList(statusFilter string) error {
 	if statusFilter == "" || strings.ToLower(statusFilter) == "all" {
 		fmt.Println("📋 No clusters registered yet")
 		fmt.Println("\n💡 Get started:")
-		fmt.Println("   gitopsctl cluster register --help")
-		fmt.Println("   gitopsctl cluster register -n mycluster -k ~/.kube/config")
+		fmt.Println("   gitopsctl register-cluster --help")
+		fmt.Println("   gitopsctl register-cluster -n mycluster -k ~/.kube/config")
 	} else {
 		fmt.Printf("📋 No clusters found with status '%s'\n", statusFilter)
 		fmt.Println("\n💡 Try:")
-		fmt.Println("   gitopsctl cluster list --status all")
-		fmt.Println("   gitopsctl cluster list")
+		fmt.Println("   gitopsctl list-clusters --status all")
+		fmt.Println("   gitopsctl list-clusters")
 	}
 	return nil
 }
