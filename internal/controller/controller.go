@@ -13,6 +13,7 @@ import (
 	"aeswibon.com/github/gitopsctl/internal/core/cluster"
 	"aeswibon.com/github/gitopsctl/internal/core/git"
 	"aeswibon.com/github/gitopsctl/internal/core/k8s"
+	"aeswibon.com/github/gitopsctl/internal/events"
 	"go.uber.org/zap"
 )
 
@@ -104,14 +105,26 @@ type Controller struct {
 	mu sync.Mutex
 	// WaitGroup is used to wait for all reconciliation goroutines to finish before shutdown.
 	wg sync.WaitGroup
+	// emitter delivers Phase 2 integration events (optional).
+	emitter events.Emitter
+}
+
+// Option configures Controller construction.
+type Option func(*Controller)
+
+// WithEmitter attaches an integration event emitter for dashboards and webhooks.
+func WithEmitter(e events.Emitter) Option {
+	return func(c *Controller) {
+		c.emitter = e
+	}
 }
 
 // NewController creates a new Controller instance.
 //
 // It initializes the context and sets up the logger and applications.
-func NewController(logger *zap.Logger, apps *app.Applications, clusters *cluster.Clusters) *Controller {
+func NewController(logger *zap.Logger, apps *app.Applications, clusters *cluster.Clusters, opts ...Option) *Controller {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Controller{
+	ctrl := &Controller{
 		logger:             logger,
 		apps:               apps,
 		clusters:           clusters,
@@ -121,6 +134,25 @@ func NewController(logger *zap.Logger, apps *app.Applications, clusters *cluster
 		clusterCommandChan: make(chan ClusterCommand, 10),
 		runningApps:        make(map[string]*appRuntime),
 	}
+	for _, o := range opts {
+		o(ctrl)
+	}
+	return ctrl
+}
+
+func (c *Controller) emit(ctx context.Context, typ events.Type, data map[string]any) {
+	if c.emitter == nil {
+		return
+	}
+	if data == nil {
+		data = map[string]any{}
+	}
+	c.emitter.Emit(ctx, typ, data)
+}
+
+// Emit allows API handlers to publish integration events through the controller emitter.
+func (c *Controller) Emit(typ events.Type, data map[string]any) {
+	c.emit(context.Background(), typ, data)
 }
 
 // Start begins the reconciliation loop for all registered applications.
@@ -162,6 +194,10 @@ func (c *Controller) Start(appConfigFile string) error {
 	}
 
 	c.logger.Info("Initial application reconciliation loops dispatched.")
+	c.emit(c.ctx, events.TypeControllerStarted, map[string]any{
+		"applications": len(appsToStart),
+		"clusters":     len(clustersToCheck),
+	})
 	return nil
 }
 
@@ -169,6 +205,7 @@ func (c *Controller) Start(appConfigFile string) error {
 //
 // It cancels the context and waits for all goroutines to finish.
 func (c *Controller) Stop() {
+	c.emit(context.Background(), events.TypeControllerStopping, map[string]any{})
 	c.logger.Info("Stopping GitOps controller...")
 	c.cancel()                  // Signal all goroutines to stop
 	close(c.appCommandChan)     // Close the command channel
@@ -243,12 +280,11 @@ func (c *Controller) clusterHealthChecker() {
 		select {
 		case <-ticker.C:
 			c.clusters.RLock()
-			defer c.clusters.RUnlock()
-
 			clustersToCheck := c.clusters.List()
 			for _, cl := range clustersToCheck {
 				c.performClusterHealthCheck(c.ctx, cl)
 			}
+			c.clusters.RUnlock()
 		case cmd, ok := <-c.clusterCommandChan:
 			if !ok {
 				c.logger.Info("Cluster command channel closed, health checker exiting.")
@@ -304,6 +340,12 @@ func (c *Controller) performClusterHealthCheck(ctx context.Context, cl *cluster.
 		logger.Error("Failed to save cluster status to file", zap.Error(err))
 	}
 	c.clusters.Unlock()
+
+	c.emit(ctx, events.TypeClusterHealthCompleted, map[string]any{
+		"cluster": cl.Name,
+		"status":  cl.Status,
+		"message": cl.Message,
+	})
 }
 
 // HandleAppCommand processes a single application command.
@@ -472,7 +514,7 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 	}
 
 	// Initial sync attempt immediately
-	c.performSync(appCtx, logger, app, repoDir, k8sClient, appConfigFile)
+	c.performSync(appCtx, logger, app, repoDir, k8sClient, appConfigFile, "initial")
 
 	// Set up a ticker for periodic polling of the Git repository
 	ticker := time.NewTicker(app.PollingInterval)
@@ -495,11 +537,11 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 			// Reset ticker with potentially new interval
 			ticker.Reset(currentInterval)
 
-			c.performSync(appCtx, logger, app, repoDir, k8sClient, appConfigFile)
+			c.performSync(appCtx, logger, app, repoDir, k8sClient, appConfigFile, "poll")
 
 		case <-syncChan: // Manual sync trigger
-			logger.Info("Manual sync triggered via API for application.", zap.String("app", app.Name))
-			c.performSync(appCtx, logger, app, repoDir, k8sClient, appConfigFile)
+			logger.Info("Manual sync triggered for application", zap.String("app", app.Name))
+			c.performSync(appCtx, logger, app, repoDir, k8sClient, appConfigFile, "manual")
 
 		case <-appCtx.Done():
 			logger.Info("Reconciliation loop stopping for application.", zap.String("reason", appCtx.Err().Error()))
@@ -518,10 +560,18 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 // PerformSync checks the Git repository for changes and applies Kubernetes manifests.
 //
 // It updates the application's status and handles errors appropriately.
-func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *app.Application, repoDir string, k8sClient *k8s.ClientSet, appConfigFile string) {
+// trigger is one of: initial, poll, manual.
+func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *app.Application, repoDir string, k8sClient *k8s.ClientSet, appConfigFile string, trigger string) {
 	previousStatus := app.Status
 	previousHash := app.LastSyncedGitHash
 	previousFailures := app.ConsecutiveFailures
+
+	c.emit(ctx, events.TypeAppSyncStarted, map[string]any{
+		"app":            app.Name,
+		"cluster":        app.ClusterName,
+		"trigger":        trigger,
+		"lastSyncedHash": app.LastSyncedGitHash,
+	})
 
 	logger.Debug("Polling Git repository...")
 	currentHash, err := git.CloneOrPull(ctx, logger, app.RepoURL, app.Branch, repoDir)
@@ -530,12 +580,20 @@ func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *a
 		app.Status = "Error"
 		app.Message = fmt.Sprintf("Git pull error: %v", err)
 		app.ConsecutiveFailures++
+		c.emit(ctx, events.TypeAppGitPullFailed, map[string]any{
+			"app": app.Name, "cluster": app.ClusterName, "trigger": trigger, "error": err.Error(),
+		})
 		c.saveAppStatus(app, appConfigFile, previousStatus != app.Status || previousHash != app.LastSyncedGitHash)
 		return
 	}
 
 	if currentHash == app.LastSyncedGitHash {
 		logger.Debug("No new changes detected in Git repository", zap.String("hash", currentHash))
+		if trigger != "poll" {
+			c.emit(ctx, events.TypeAppSyncNoChanges, map[string]any{
+				"app": app.Name, "cluster": app.ClusterName, "trigger": trigger, "commit": currentHash,
+			})
+		}
 		// Only change status to Synced if it was previously an error, otherwise keep it as is
 		if app.Status == "Error" || app.Status == "Pending" || app.Status == "SyncRequested" {
 			app.Status = "Synced"
@@ -560,6 +618,9 @@ func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *a
 		app.Status = "Error"
 		app.Message = fmt.Sprintf("Manifests path '%s' not found in repo after cloning. Check 'path' in config or repo structure.", app.Path)
 		app.ConsecutiveFailures++
+		c.emit(ctx, events.TypeAppManifestPathMissing, map[string]any{
+			"app": app.Name, "cluster": app.ClusterName, "trigger": trigger, "path": app.Path,
+		})
 		c.saveAppStatus(app, appConfigFile, previousStatus != app.Status || previousHash != app.LastSyncedGitHash)
 		return
 	}
@@ -578,6 +639,9 @@ func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *a
 		app.Status = "Error"
 		app.Message = errMsg
 		app.ConsecutiveFailures++
+		c.emit(ctx, events.TypeAppApplyFailed, map[string]any{
+			"app": app.Name, "cluster": app.ClusterName, "trigger": trigger, "error": errMsg,
+		})
 		c.saveAppStatus(app, appConfigFile, previousStatus != app.Status || previousHash != app.LastSyncedGitHash)
 		return
 	}
@@ -587,6 +651,13 @@ func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *a
 	app.Message = fmt.Sprintf("Successfully synced to %s", currentHash)
 	app.ConsecutiveFailures = 0 // Reset failures on successful sync
 	logger.Info("Successfully applied Kubernetes manifests", zap.String("hash", currentHash))
+	c.emit(ctx, events.TypeAppSyncSucceeded, map[string]any{
+		"app":            app.Name,
+		"cluster":        app.ClusterName,
+		"trigger":        trigger,
+		"commit":         currentHash,
+		"previousCommit": previousHash,
+	})
 
 	c.saveAppStatus(app, appConfigFile, previousStatus != app.Status || previousHash != app.LastSyncedGitHash || previousFailures != app.ConsecutiveFailures)
 }

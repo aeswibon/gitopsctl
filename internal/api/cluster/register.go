@@ -5,6 +5,7 @@ import (
 	"time"
 
 	clustercore "aeswibon.com/github/gitopsctl/internal/core/cluster"
+	"aeswibon.com/github/gitopsctl/internal/events"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 )
@@ -45,6 +46,10 @@ func (h *Handler) Register(c echo.Context) error {
 	}
 
 	h.controller.TriggerClusterHealthCheck(req.Name)
+	h.controller.Emit(events.TypeClusterRegistered, map[string]any{
+		"cluster":    req.Name,
+		"kubeconfig": req.KubeconfigPath,
+	})
 
 	h.logger.Info("Cluster registered/updated via API", zap.String("name", req.Name))
 	return c.JSON(http.StatusOK, map[string]string{"message": "Cluster registered/updated successfully", "name": req.Name})

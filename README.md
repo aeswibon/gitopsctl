@@ -4,18 +4,18 @@
 
 ## Goals
 
-The project exists to provide a **small, explicit GitOps loop**: desired state lives in Git; GitOpsCTL **watches that Git**, **applies Kubernetes manifests** to **named clusters**, and exposes **CLI and HTTP API** so people and automation can register workloads, trigger syncs, and inspect status—without requiring a full in-cluster control plane such as Argo CD or Flux.
+The project exists to provide a **small, explicit GitOps loop**: desired state lives in Git; GitOpsCTL **watches that Git**, **applies Kubernetes manifests** to **named clusters**, and exposes a **CLI** as the main operator surface, plus **HTTP and integration hooks** so automation and **your own dashboards** can register workloads, trigger syncs, inspect status, and subscribe to events—without requiring a full in-cluster control plane such as Argo CD or Flux.
 
 In one sentence: **GitOpsCTL keeps Kubernetes aligned with Git using a minimal external controller.**
 
-Everything beyond that loop (rich UI, plugins, webhooks-first workflows, advanced policy) is optional evolution **after** reconciliation and operations are reliable and well documented.
+Everything beyond that loop (bundled UI, heavy plugins, webhook-primary Git ingest, advanced policy) is optional evolution **after** reconciliation, observability contracts, and operations are reliable and well documented.
 
 ## Who this is for
 
 - **Platform and DevOps engineers** who want Git-as-source-of-truth deploys with a thin controller they can run beside their existing toolchain.
 - **SREs and on-call** who need logs, status, and a way to confirm what revision synced—or to kick a sync without digging through cluster internals only.
 - **Small teams, edge, or local Kubernetes setups** where a lightweight external reconciler is easier to own than a large GitOps stack in-cluster.
-- **Automation authors** integrating registration, sync, or health checks via the REST API (`/api/v1`) from pipelines or internal tools.
+- **Automation authors** integrating registration, sync, health checks, or future **event sinks** (webhooks, streams) from pipelines, agents, or custom backends—often alongside **`--output json`** on the CLI.
 
 ### Who this is not for (today)
 
@@ -42,6 +42,7 @@ Everything beyond that loop (rich UI, plugins, webhooks-first workflows, advance
 - [⚙️ Configuration](#configuration)
 - [📂 Project structure](#project-structure)
 - [➡️ Next steps (future phases)](#next-steps-future-phases)
+- [Phase 2 roadmap (CLI-first & integrations)](docs/phase2.md)
 - [🤝 Contributing](#contributing)
 - [📄 License](#license)
 
@@ -154,6 +155,26 @@ Run the main controller to begin the GitOps reconciliation loop:
 
 The controller starts polling registered Git repositories and applying changes to your clusters. An HTTP API is started alongside it (default listen address `:8080`; override with `--api-address`, for example `--api-address 127.0.0.1:9090`). You'll see logs in your terminal indicating activity.
 
+**Phase 2 — integration events (optional):** append JSON lines to a file and/or POST to a webhook so external dashboards can react:
+
+```bash
+./gitopsctl start \
+  --events-file configs/events.jsonl \
+  --events-webhook https://example.com/hooks/gitops \
+  --events-webhook-bearer "$TOKEN" \
+  --events-webhook-secret "$HMAC_SECRET" \
+  --events-webhook-retries 3 \
+  --events-webhook-backoff 1s
+```
+
+Follow the file from another terminal: `./gitopsctl tail-events --file configs/events.jsonl`. Event schema: [docs/integrations.md](docs/integrations.md).
+
+**Calls into a running controller** (same as the HTTP API; set `--api-url` if the API is not at `http://127.0.0.1:8080`):
+
+- `./gitopsctl sync-app -n <app>` — request an immediate application sync.
+- `./gitopsctl check-cluster -n <cluster>` — request an immediate cluster connectivity check.
+- `curl -N http://127.0.0.1:8080/api/v1/events` — subscribe to live SSE events (`event` = type, `data` = envelope JSON).
+
 To stop the controller, press `Ctrl+C`. It performs a graceful shutdown (including the API server).
 
 ### Example workflow
@@ -206,18 +227,23 @@ gitopsctl/
 
 Development is phased; some items below already exist in code.
 
-### API and multi-cluster (partially delivered)
+### Phase 2: CLI-first operations and integrations (current direction)
 
-- REST API for apps and clusters is available under `/api/v1` when the controller is running.
-- Multiple kubeconfig-backed clusters are supported from one controller process.
-- **Still planned**: optional webhook-driven sync as a first-class complement to polling.
+**GitOpsCTL stays a CLI tool.** We intend to expose **the full set of capabilities through the CLI** (including anything today reachable only via HTTP while `start` is running). The optional REST API remains a **machine interface** for automation, not a replacement for the CLI.
 
-### Phase 3: UI, extensibility, and plugins
+**We do not plan to ship an official web dashboard.** Instead, Phase 2 focuses on **stable, listenable signals** (documented events, optional webhooks or streams, script-friendly JSON) so you can build **your own** dashboards and integrations on top. Details and suggested deliverables: [docs/phase2.md](docs/phase2.md).
 
-- A minimal web UI dashboard for visual monitoring.
-- Advanced sync strategies (manual approval, scheduled syncs).
-- Plugin interface for Helm, OCI, and custom templating engines.
-- Integration with notification systems.
+### Baseline already in the tree
+
+- REST API for apps and clusters under `/api/v1` when the controller is running (`gitopsctl start`).
+- Multiple kubeconfig-backed clusters from one controller process.
+- Git polling today; Git **push** webhooks as a sync accelerator remain a later enhancement (see Phase 2 doc).
+
+### Phase 3: Engines and advanced sync (no required UI)
+
+- Advanced sync strategies (manual approval, scheduled syncs, richer policies).
+- Deeper extensibility: Helm/OCI and templating engines where they fit the architecture.
+- Notification and integration patterns built on Phase 2 event hooks—not a bundled UI unless the community explicitly chooses otherwise later.
 
 ## Contributing
 

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"aeswibon.com/github/gitopsctl/internal/core/app"
+	"aeswibon.com/github/gitopsctl/internal/events"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 )
@@ -178,6 +179,12 @@ func performUnregistration(apps *app.Applications, targetApp *app.Application) e
 	fmt.Printf("  • To re-register: gitopsctl register-apps -n %s -r %s -p %s -c %s\n",
 		targetApp.Name, targetApp.RepoURL, targetApp.Path, targetApp.ClusterName)
 	fmt.Printf("  • To list remaining apps: gitopsctl list-apps\n")
+	emitCommandEvent(events.TypeAppUnregistered, map[string]any{
+		"app":     targetApp.Name,
+		"repoURL": targetApp.RepoURL,
+		"path":    targetApp.Path,
+		"cluster": targetApp.ClusterName,
+	})
 
 	return nil
 }

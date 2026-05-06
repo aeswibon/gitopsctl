@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	clustercore "aeswibon.com/github/gitopsctl/internal/core/cluster"
+	"aeswibon.com/github/gitopsctl/internal/events"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 )
@@ -30,6 +31,9 @@ func (h *Handler) Unregister(c echo.Context) error {
 	}
 
 	h.clusters.Delete(name)
+	h.controller.Emit(events.TypeClusterUnregistered, map[string]any{
+		"cluster": name,
+	})
 	if err := clustercore.SaveClusters(h.clusters, clustercore.DefaultClusterConfigFile); err != nil {
 		h.logger.Error("Failed to save clusters after unregister", zap.Error(err))
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to remove cluster configuration")

@@ -2,7 +2,7 @@
 
 GitOpsCTL is a Go CLI and HTTP API that reconciles **Kubernetes manifests in Git** against **registered clusters** (kubeconfig-backed). The controller runs outside the cluster: it polls Git and applies YAML using client-go.
 
-For setup and commands, see the [README](../README.md). For what “Phase 1” includes, see [phase1.md](./phase1.md).
+For setup and commands, see the [README](../README.md). For Phase 1 closure criteria, see [phase1.md](./phase1.md). For Phase 2 (events, webhooks, CLI/API parity), see [phase2.md](./phase2.md) and [integrations.md](./integrations.md).
 
 ## Layout
 
@@ -16,6 +16,7 @@ internal/core/cluster/  → Cluster model and persistence
 internal/core/git/      → Clone/pull/hash
 internal/core/k8s/      → Apply manifests
 internal/common/        → Shared types (e.g. API errors)
+internal/events/        → Integration event envelope, JSONL + webhook sinks (Phase 2)
 internal/utils/         → CLI list helpers and flags
 configs/                → Runtime JSON stores (created when you register)
 ```
@@ -24,8 +25,8 @@ configs/                → Runtime JSON stores (created when you register)
 
 1. **CLI or API** updates in-memory stores and persists JSON under `configs/`.
 2. **`gitopsctl start`** loads apps and clusters, starts the **controller** and **API** goroutines.
-3. **Controller** runs per-app reconciliation: fetch Git at `interval`, compare commit hash, apply manifests to the app’s `clusterName` kubeconfig.
-4. **Manual sync** sets controller state so the app reconciles immediately; API returns `202 Accepted`.
+3. **Controller** runs per-app reconciliation: fetch Git at `interval`, compare commit hash, apply manifests to the app’s `clusterName` kubeconfig; optionally emits **integration events** to configured sinks.
+4. **Manual sync** (`API` or `sync-app` CLI) signals the controller; sync runs on the app goroutine; API returns `202 Accepted`.
 
 ## Packages worth reading first
 

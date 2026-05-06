@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"aeswibon.com/github/gitopsctl/internal/controller"
 	appcore "aeswibon.com/github/gitopsctl/internal/core/app"
 	clustercore "aeswibon.com/github/gitopsctl/internal/core/cluster"
+	"aeswibon.com/github/gitopsctl/internal/events"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"go.uber.org/zap"
@@ -28,11 +31,13 @@ type Server struct {
 	clusters *clustercore.Clusters
 	// controller is the reference to the main controller that manages application synchronization.
 	controller *controller.Controller
+	// stream is an in-memory subscriber sink used for SSE event streaming.
+	stream *events.StreamSink
 }
 
 // NewServer creates a new API server instance.
 // It initializes the Echo instance, sets up middleware, and registers routes.
-func NewServer(logger *zap.Logger, apps *appcore.Applications, clusters *clustercore.Clusters, ctrl *controller.Controller) *Server {
+func NewServer(logger *zap.Logger, apps *appcore.Applications, clusters *clustercore.Clusters, ctrl *controller.Controller, stream *events.StreamSink) *Server {
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
@@ -52,6 +57,7 @@ func NewServer(logger *zap.Logger, apps *appcore.Applications, clusters *cluster
 		apps:       apps,
 		clusters:   clusters,
 		controller: ctrl,
+		stream:     stream,
 	}
 
 	s.registerRoutes()
@@ -68,6 +74,9 @@ func (s *Server) registerRoutes() {
 
 	app.RegisterRoutes(v1, appHandler)
 	cluster.RegisterRoutes(v1, clusterHandler)
+	if s.stream != nil {
+		v1.GET("/events", s.StreamEvents)
+	}
 
 	s.e.GET("/health", s.HealthCheck)
 
@@ -102,4 +111,57 @@ func (s *Server) Stop(ctx context.Context) error {
 func (s *Server) HealthCheck(c echo.Context) error {
 	// Simple health check: just respond with 200 OK
 	return c.String(http.StatusOK, "OK")
+}
+
+// StreamEvents streams integration events over Server-Sent Events (SSE).
+func (s *Server) StreamEvents(c echo.Context) error {
+	if s.stream == nil {
+		return c.NoContent(http.StatusNotImplemented)
+	}
+
+	w := c.Response().Writer
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		return echo.NewHTTPError(http.StatusInternalServerError, "streaming unsupported")
+	}
+
+	c.Response().Header().Set(echo.HeaderContentType, "text/event-stream")
+	c.Response().Header().Set("Cache-Control", "no-cache")
+	c.Response().Header().Set("Connection", "keep-alive")
+	c.Response().Header().Set("X-Accel-Buffering", "no")
+	c.Response().WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	eventsCh, unsubscribe := s.stream.Subscribe(256)
+	defer unsubscribe()
+
+	heartbeat := time.NewTicker(20 * time.Second)
+	defer heartbeat.Stop()
+
+	reqCtx := c.Request().Context()
+	for {
+		select {
+		case <-reqCtx.Done():
+			return nil
+		case env, ok := <-eventsCh:
+			if !ok {
+				return nil
+			}
+			payload, err := json.Marshal(env)
+			if err != nil {
+				s.logger.Warn("failed to marshal SSE event", zap.Error(err))
+				continue
+			}
+			if _, err := fmt.Fprintf(w, "id: %s\nevent: %s\ndata: %s\n\n", env.ID, env.Type, payload); err != nil {
+				return nil
+			}
+			flusher.Flush()
+		case <-heartbeat.C:
+			// SSE comment heartbeat keeps proxies from closing idle connections.
+			if _, err := fmt.Fprint(w, ": keep-alive\n\n"); err != nil {
+				return nil
+			}
+			flusher.Flush()
+		}
+	}
 }

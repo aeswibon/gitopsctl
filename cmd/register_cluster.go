@@ -9,6 +9,7 @@ import (
 
 	"aeswibon.com/github/gitopsctl/internal/common"
 	clustercore "aeswibon.com/github/gitopsctl/internal/core/cluster"
+	"aeswibon.com/github/gitopsctl/internal/events"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 	"k8s.io/client-go/tools/clientcmd"
@@ -237,6 +238,12 @@ func saveAndConfirmCluster(newCluster *clustercore.Cluster, isUpdate bool) error
 		zap.String("status", newCluster.Status),
 		zap.Bool("is_update", isUpdate),
 	)
+	emitCommandEvent(events.TypeClusterRegistered, map[string]any{
+		"cluster":    newCluster.Name,
+		"kubeconfig": newCluster.KubeconfigPath,
+		"status":     newCluster.Status,
+		"updated":    isUpdate,
+	})
 
 	return nil
 }

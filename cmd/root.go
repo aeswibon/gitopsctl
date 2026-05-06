@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
@@ -11,6 +12,16 @@ import (
 
 var (
 	logger *zap.Logger
+	// apiBaseURL is the controller REST API base (for CLI commands that call into a running gitopsctl start).
+	apiBaseURL string
+	// Optional integration event sinks shared by start + mutating CLI commands.
+	eventsFile           string
+	eventsWebhookURL     string
+	eventsWebhookBearer  string
+	eventsWebhookSecret  string
+	eventsWebhookRetry   int
+	eventsWebhookBackoff time.Duration
+	eventsWebhookTimeout time.Duration
 )
 
 var (
@@ -80,5 +91,13 @@ func RootCmd() *cobra.Command {
 func init() {
 	rootCmd.AddGroup(appGroup)
 	rootCmd.AddGroup(clusterGroup)
+	rootCmd.PersistentFlags().StringVar(&apiBaseURL, "api-url", "http://127.0.0.1:8080", "Base URL of the gitopsctl API (for commands that require a running controller)")
+	rootCmd.PersistentFlags().StringVar(&eventsFile, "events-file", "", "Append integration events as JSON lines to this file (optional)")
+	rootCmd.PersistentFlags().StringVar(&eventsWebhookURL, "events-webhook", "", "POST each integration event as JSON to this URL (optional)")
+	rootCmd.PersistentFlags().StringVar(&eventsWebhookBearer, "events-webhook-bearer", "", "Bearer token for --events-webhook Authorization header (optional)")
+	rootCmd.PersistentFlags().StringVar(&eventsWebhookSecret, "events-webhook-secret", "", "HMAC secret for X-GitOpsctl-Signature (sha256) header (optional)")
+	rootCmd.PersistentFlags().IntVar(&eventsWebhookRetry, "events-webhook-retries", 2, "Number of webhook retry attempts for transient failures")
+	rootCmd.PersistentFlags().DurationVar(&eventsWebhookBackoff, "events-webhook-backoff", 750*time.Millisecond, "Base backoff duration between webhook retries")
+	rootCmd.PersistentFlags().DurationVar(&eventsWebhookTimeout, "events-webhook-timeout", 12*time.Second, "HTTP timeout per webhook request")
 	rootCmd.AddCommand(startCmd)
 }

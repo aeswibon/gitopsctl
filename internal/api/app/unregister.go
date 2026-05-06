@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	appcore "aeswibon.com/github/gitopsctl/internal/core/app"
+	"aeswibon.com/github/gitopsctl/internal/events"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 )
@@ -25,6 +26,9 @@ func (h *Handler) Unregister(c echo.Context) error {
 
 	// Stop the controller's goroutine for this application FIRST
 	h.controller.StopApp(name)
+	h.controller.Emit(events.TypeAppUnregistered, map[string]any{
+		"app": name,
+	})
 	h.apps.Lock()
 	defer h.apps.Unlock()
 

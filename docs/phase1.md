@@ -1,6 +1,6 @@
 # Phase 1 scope
 
-Phase 1 delivers a **trustworthy minimal GitOps loop** that matches the project goal: Git as desired state, external controller, named clusters, CLI + API for day-to-day operations.
+Phase 1 delivers a **trustworthy minimal GitOps loop** that matches the project goal: Git as desired state, external controller, named clusters, **CLI for day-to-day operations** plus an optional REST API for automation. Phase 2 clarifies **CLI-first** positioning and **integration hooks** for external dashboards; see [phase2.md](./phase2.md).
 
 ## Already implemented (baseline)
 

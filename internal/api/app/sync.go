@@ -3,6 +3,7 @@ package app
 import (
 	"net/http"
 
+	"aeswibon.com/github/gitopsctl/internal/events"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 )
@@ -22,6 +23,9 @@ func (h *Handler) Sync(c echo.Context) error {
 	}
 
 	h.controller.TriggerSync(name)
+	h.controller.Emit(events.TypeAppSyncRequested, map[string]any{
+		"app": name,
+	})
 
 	app.Status = "SyncRequested"
 	app.Message = "Manual sync requested."

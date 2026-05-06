@@ -3,6 +3,7 @@ package cluster
 import (
 	"net/http"
 
+	"aeswibon.com/github/gitopsctl/internal/events"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 )
@@ -22,6 +23,9 @@ func (h *Handler) HealthCheck(c echo.Context) error {
 	}
 
 	h.controller.TriggerClusterHealthCheck(name)
+	h.controller.Emit(events.TypeClusterHealthCheckRequested, map[string]any{
+		"cluster": name,
+	})
 	clusterToUpdate.Status = "CheckRequested"
 	clusterToUpdate.Message = "Manual health check requested. Controller received signal."
 	h.logger.Info("Manual cluster health check requested via API", zap.String("name", name))

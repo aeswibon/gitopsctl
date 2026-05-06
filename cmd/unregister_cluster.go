@@ -5,6 +5,7 @@ import (
 
 	"aeswibon.com/github/gitopsctl/internal/common"
 	"aeswibon.com/github/gitopsctl/internal/core/cluster"
+	"aeswibon.com/github/gitopsctl/internal/events"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 )
@@ -85,6 +86,9 @@ func unregisterCluster(cm *cobra.Command, args []string) error {
 	logger.Info("Cluster unregistered successfully",
 		zap.String("name", clusterUnregName))
 	fmt.Printf("✓ Cluster '%s' has been unregistered successfully.\n", clusterUnregName)
+	emitCommandEvent(events.TypeClusterUnregistered, map[string]any{
+		"cluster": clusterUnregName,
+	})
 
 	return nil
 }

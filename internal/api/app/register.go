@@ -6,6 +6,7 @@ import (
 	"time"
 
 	appcore "aeswibon.com/github/gitopsctl/internal/core/app"
+	"aeswibon.com/github/gitopsctl/internal/events"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 )
@@ -87,6 +88,15 @@ func (h *Handler) Register(c echo.Context) error {
 	}
 
 	h.controller.StartApp(req.Name)
+	h.controller.Emit(events.TypeAppRegistered, map[string]any{
+		"app":      req.Name,
+		"repoURL":  req.RepoURL,
+		"branch":   req.Branch,
+		"path":     req.Path,
+		"cluster":  req.ClusterName,
+		"interval": req.Interval,
+		"updated":  exists,
+	})
 
 	h.logger.Info("Application registered/updated via API", zap.String("name", req.Name))
 	return c.JSON(http.StatusOK, map[string]string{"message": "Application registered/updated successfully", "name": req.Name})

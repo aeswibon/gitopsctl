@@ -8,6 +8,7 @@ import (
 	"aeswibon.com/github/gitopsctl/internal/common"
 	"aeswibon.com/github/gitopsctl/internal/core/app"
 	"aeswibon.com/github/gitopsctl/internal/core/cluster"
+	"aeswibon.com/github/gitopsctl/internal/events"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 )
@@ -267,7 +268,7 @@ func saveAndConfirmApplication(apps *app.Applications, newApp *app.Application, 
 	fmt.Printf("\nNext steps:\n")
 	fmt.Printf("  • Monitor sync status: gitopsctl status-apps\n")
 	fmt.Printf("  • Run controller + API: gitopsctl start\n")
-	fmt.Printf("  • Trigger manual sync (with controller running): curl -X POST http://localhost:8080/api/v1/applications/%s/sync\n", newApp.Name)
+	fmt.Printf("  • Trigger manual sync (controller running): gitopsctl sync-app -n %s\n", newApp.Name)
 
 	logger.Info("Application registered successfully",
 		zap.String("name", newApp.Name),
@@ -278,6 +279,15 @@ func saveAndConfirmApplication(apps *app.Applications, newApp *app.Application, 
 		zap.String("interval", newApp.Interval),
 		zap.Bool("is_update", isUpdate),
 	)
+	emitCommandEvent(events.TypeAppRegistered, map[string]any{
+		"app":      newApp.Name,
+		"repoURL":  newApp.RepoURL,
+		"branch":   newApp.Branch,
+		"path":     newApp.Path,
+		"cluster":  newApp.ClusterName,
+		"interval": newApp.Interval,
+		"updated":  isUpdate,
+	})
 
 	return nil
 }
