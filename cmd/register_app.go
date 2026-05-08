@@ -292,14 +292,14 @@ func saveAndConfirmApplication(apps *app.Applications, newApp *app.Application, 
 		zap.Bool("is_update", isUpdate),
 	)
 	emitCommandEvent(events.TypeAppRegistered, map[string]any{
-		"app":      newApp.Name,
-		"repoURL":  newApp.RepoURL,
-		"branch":   newApp.Branch,
-		"path":     newApp.Path,
-		"cluster":  newApp.ClusterName,
-		"interval": newApp.Interval,
+		"app":        newApp.Name,
+		"repoURL":    newApp.RepoURL,
+		"branch":     newApp.Branch,
+		"path":       newApp.Path,
+		"cluster":    newApp.ClusterName,
+		"interval":   newApp.Interval,
 		"syncPolicy": newApp.SyncPolicy,
-		"updated":  isUpdate,
+		"updated":    isUpdate,
 	})
 
 	return nil
