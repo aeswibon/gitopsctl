@@ -34,7 +34,18 @@ func IsValidRepoPath(s string) bool {
 // ParseURL is a helper to parse a URL. Using net/url.ParseRequestURI for stricter parsing.
 // It ensures that the URL has a scheme and host, which is important for Git URLs.
 func ParseURL(rawurl string) (*url.URL, error) {
-	u, err := url.ParseRequestURI(rawurl)
+	// Handle SCP-style Git URLs: git@github.com:user/repo.git
+	if strings.HasPrefix(rawurl, "git@") && strings.Contains(rawurl, ":") {
+		// Mock a URL structure for validation purposes
+		return &url.URL{
+			Scheme: "ssh",
+			User:   url.User("git"),
+			Host:   strings.Split(rawurl[4:], ":")[0],
+			Path:   strings.Split(rawurl, ":")[1],
+		}, nil
+	}
+
+	u, err := url.Parse(rawurl)
 	if err != nil {
 		return nil, err
 	}
