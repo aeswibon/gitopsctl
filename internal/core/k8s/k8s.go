@@ -22,6 +22,8 @@ import (
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
+	"sigs.k8s.io/kustomize/api/krusty"
+	"sigs.k8s.io/kustomize/kyaml/filesys"
 )
 
 const (
@@ -100,13 +102,33 @@ func NewClientSet(logger *zap.Logger, kubeconfigPath string) (*ClientSet, error)
 }
 
 // ApplyManifests applies Kubernetes manifests from a given directory to the cluster.
-// This function processes all YAML files in the specified directory, decodes them into
-// Kubernetes objects, and applies them to the cluster. It handles both creation and updates
-// of resources based on their existence in the cluster.
+// It checks if the directory contains a kustomization file and builds it if present.
+// Otherwise, it processes all YAML files in the specified directory.
 func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) []error {
 	cs.logger.Info("Applying manifests", zap.String("directory", manifestsDir))
 	var applyErrors []error
 
+	fSys := filesys.MakeFsOnDisk()
+	if hasKustomization(fSys, manifestsDir) {
+		cs.logger.Info("Detected Kustomization, building with kustomize", zap.String("directory", manifestsDir))
+		k := krusty.MakeKustomizer(krusty.MakeDefaultOptions())
+		resMap, err := k.Run(fSys, manifestsDir)
+		if err != nil {
+			cs.logger.Error("Kustomize build failed", zap.Error(err))
+			return []error{fmt.Errorf("kustomize build failed: %w", err)}
+		}
+
+		yamlBytes, err := resMap.AsYaml()
+		if err != nil {
+			cs.logger.Error("Failed to convert kustomize output to YAML", zap.Error(err))
+			return []error{fmt.Errorf("failed to convert kustomize output to yaml: %w", err)}
+		}
+
+		cs.logger.Debug("Successfully built kustomization, applying generated YAML")
+		return cs.applyYAMLData(ctx, yamlBytes, filepath.Join(manifestsDir, "kustomization"))
+	}
+
+	cs.logger.Info("No kustomization found, applying raw YAML files", zap.String("directory", manifestsDir))
 	err := filepath.WalkDir(manifestsDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			applyErrors = append(applyErrors, fmt.Errorf("filesystem error walking %s: %w", path, err))
@@ -127,95 +149,112 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) []
 			return nil
 		}
 
-		decoder := yaml.NewDecodingSerializer(unstructured.UnstructuredJSONScheme)
-		objects := strings.Split(string(data), "\n---")
-
-		for i, objStr := range objects {
-			trimmedObjStr := strings.TrimSpace(objStr)
-			if trimmedObjStr == "" {
-				continue
-			}
-
-			unstructuredObj := &unstructured.Unstructured{}
-			_, gvk, decodeErr := decoder.Decode([]byte(trimmedObjStr), nil, unstructuredObj)
-			if decodeErr != nil {
-				cs.logger.Error("Failed to decode YAML object", zap.String("file", path), zap.Int("documentIdx", i), zap.Error(decodeErr))
-				applyErrors = append(applyErrors, fmt.Errorf("failed to decode YAML from %s (doc %d): %w", path, i, decodeErr))
-				continue
-			}
-
-			if unstructuredObj.GetName() == "" {
-				cs.logger.Warn("Skipping unnamed resource in manifest", zap.String("file", path), zap.Int("documentIdx", i), zap.String("kind", gvk.Kind))
-				applyErrors = append(applyErrors, fmt.Errorf("skipping unnamed resource in %s (doc %d) of kind %s", path, i, gvk.Kind))
-				continue
-			}
-
-			mapping, mappingErr := cs.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-			if mappingErr != nil {
-				cs.logger.Error("Failed to get REST mapping for GVK",
-					zap.String("gvk", gvk.String()), zap.String("file", path), zap.Error(mappingErr))
-				applyErrors = append(applyErrors, fmt.Errorf("failed to get REST mapping for %s in %s: %w", gvk.String(), path, mappingErr))
-				continue
-			}
-
-			var dr dynamic.ResourceInterface
-			if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
-				// namespaced resources should specify the namespace
-				if unstructuredObj.GetNamespace() == "" {
-					unstructuredObj.SetNamespace("default")
-					cs.logger.Debug("Namespace not specified for namespaced resource, defaulting to 'default'",
-						zap.String("kind", gvk.Kind),
-						zap.String("name", unstructuredObj.GetName()))
-				}
-				dr = cs.dynamicClient.Resource(mapping.Resource).Namespace(unstructuredObj.GetNamespace())
-			} else {
-				// cluster-scoped resources should not specify the namespace
-				dr = cs.dynamicClient.Resource(mapping.Resource)
-			}
-
-			// Try to get the resource
-			_, getErr := dr.Get(ctx, unstructuredObj.GetName(), metav1.GetOptions{})
-
-			if getErr != nil {
-				// Resource does not exist, create it
-				_, createErr := dr.Create(ctx, unstructuredObj, metav1.CreateOptions{})
-				if createErr != nil {
-					cs.logger.Error("Failed to create resource",
-						zap.String("kind", gvk.Kind),
-						zap.String("name", unstructuredObj.GetName()),
-						zap.String("namespace", unstructuredObj.GetNamespace()),
-						zap.Error(createErr))
-					applyErrors = append(applyErrors, fmt.Errorf("failed to create %s %s/%s from %s: %w", gvk.Kind, unstructuredObj.GetNamespace(), unstructuredObj.GetName(), path, createErr))
-					continue
-				}
-				cs.logger.Info("Created resource",
-					zap.String("kind", gvk.Kind),
-					zap.String("name", unstructuredObj.GetName()),
-					zap.String("namespace", unstructuredObj.GetNamespace()))
-			} else {
-				// Resource exists, update it (using simple update for MVP)
-				// For proper server-side apply, you'd use FieldManager and Apply method
-				// unstructuredObj.SetResourceVersion("") // Clear resource version for update (optional, usually handled by server-side apply)
-				_, updateErr := dr.Update(ctx, unstructuredObj, metav1.UpdateOptions{})
-				if updateErr != nil {
-					cs.logger.Error("Failed to update resource",
-						zap.String("kind", gvk.Kind),
-						zap.String("name", unstructuredObj.GetName()),
-						zap.String("namespace", unstructuredObj.GetNamespace()),
-						zap.Error(updateErr))
-					applyErrors = append(applyErrors, fmt.Errorf("failed to update %s %s/%s from %s: %w", gvk.Kind, unstructuredObj.GetNamespace(), unstructuredObj.GetName(), path, updateErr))
-					continue
-				}
-				cs.logger.Info("Updated resource",
-					zap.String("kind", gvk.Kind),
-					zap.String("name", unstructuredObj.GetName()),
-					zap.String("namespace", unstructuredObj.GetNamespace()))
-			}
+		fileErrors := cs.applyYAMLData(ctx, data, path)
+		if len(fileErrors) > 0 {
+			applyErrors = append(applyErrors, fileErrors...)
 		}
 		return nil
 	})
 	if err != nil {
 		applyErrors = append(applyErrors, fmt.Errorf("error during manifest directory walk %s: %w", manifestsDir, err))
+	}
+	return applyErrors
+}
+
+func hasKustomization(fSys filesys.FileSystem, dir string) bool {
+	for _, name := range []string{"kustomization.yaml", "kustomization.yml", "Kustomization"} {
+		if fSys.Exists(filepath.Join(dir, name)) {
+			return true
+		}
+	}
+	return false
+}
+
+// applyYAMLData takes a byte slice of YAML documents (separated by ---) and applies them to the cluster.
+func (cs *ClientSet) applyYAMLData(ctx context.Context, data []byte, sourceName string) []error {
+	var applyErrors []error
+	decoder := yaml.NewDecodingSerializer(unstructured.UnstructuredJSONScheme)
+	objects := strings.Split(string(data), "\n---")
+
+	for i, objStr := range objects {
+		trimmedObjStr := strings.TrimSpace(objStr)
+		if trimmedObjStr == "" {
+			continue
+		}
+
+		unstructuredObj := &unstructured.Unstructured{}
+		_, gvk, decodeErr := decoder.Decode([]byte(trimmedObjStr), nil, unstructuredObj)
+		if decodeErr != nil {
+			cs.logger.Error("Failed to decode YAML object", zap.String("source", sourceName), zap.Int("documentIdx", i), zap.Error(decodeErr))
+			applyErrors = append(applyErrors, fmt.Errorf("failed to decode YAML from %s (doc %d): %w", sourceName, i, decodeErr))
+			continue
+		}
+
+		if unstructuredObj.GetName() == "" {
+			cs.logger.Warn("Skipping unnamed resource in manifest", zap.String("source", sourceName), zap.Int("documentIdx", i), zap.String("kind", gvk.Kind))
+			applyErrors = append(applyErrors, fmt.Errorf("skipping unnamed resource in %s (doc %d) of kind %s", sourceName, i, gvk.Kind))
+			continue
+		}
+
+		mapping, mappingErr := cs.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+		if mappingErr != nil {
+			cs.logger.Error("Failed to get REST mapping for GVK",
+				zap.String("gvk", gvk.String()), zap.String("source", sourceName), zap.Error(mappingErr))
+			applyErrors = append(applyErrors, fmt.Errorf("failed to get REST mapping for %s in %s: %w", gvk.String(), sourceName, mappingErr))
+			continue
+		}
+
+		var dr dynamic.ResourceInterface
+		if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
+			// namespaced resources should specify the namespace
+			if unstructuredObj.GetNamespace() == "" {
+				unstructuredObj.SetNamespace("default")
+				cs.logger.Debug("Namespace not specified for namespaced resource, defaulting to 'default'",
+					zap.String("kind", gvk.Kind),
+					zap.String("name", unstructuredObj.GetName()))
+			}
+			dr = cs.dynamicClient.Resource(mapping.Resource).Namespace(unstructuredObj.GetNamespace())
+		} else {
+			// cluster-scoped resources should not specify the namespace
+			dr = cs.dynamicClient.Resource(mapping.Resource)
+		}
+
+		// Try to get the resource
+		_, getErr := dr.Get(ctx, unstructuredObj.GetName(), metav1.GetOptions{})
+
+		if getErr != nil {
+			// Resource does not exist, create it
+			_, createErr := dr.Create(ctx, unstructuredObj, metav1.CreateOptions{})
+			if createErr != nil {
+				cs.logger.Error("Failed to create resource",
+					zap.String("kind", gvk.Kind),
+					zap.String("name", unstructuredObj.GetName()),
+					zap.String("namespace", unstructuredObj.GetNamespace()),
+					zap.Error(createErr))
+				applyErrors = append(applyErrors, fmt.Errorf("failed to create %s %s/%s from %s: %w", gvk.Kind, unstructuredObj.GetNamespace(), unstructuredObj.GetName(), sourceName, createErr))
+				continue
+			}
+			cs.logger.Info("Created resource",
+				zap.String("kind", gvk.Kind),
+				zap.String("name", unstructuredObj.GetName()),
+				zap.String("namespace", unstructuredObj.GetNamespace()))
+		} else {
+			// Resource exists, update it (using simple update for MVP)
+			_, updateErr := dr.Update(ctx, unstructuredObj, metav1.UpdateOptions{})
+			if updateErr != nil {
+				cs.logger.Error("Failed to update resource",
+					zap.String("kind", gvk.Kind),
+					zap.String("name", unstructuredObj.GetName()),
+					zap.String("namespace", unstructuredObj.GetNamespace()),
+					zap.Error(updateErr))
+				applyErrors = append(applyErrors, fmt.Errorf("failed to update %s %s/%s from %s: %w", gvk.Kind, unstructuredObj.GetNamespace(), unstructuredObj.GetName(), sourceName, updateErr))
+				continue
+			}
+			cs.logger.Info("Updated resource",
+				zap.String("kind", gvk.Kind),
+				zap.String("name", unstructuredObj.GetName()),
+				zap.String("namespace", unstructuredObj.GetNamespace()))
+		}
 	}
 	return applyErrors
 }
