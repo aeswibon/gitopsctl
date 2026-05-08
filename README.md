@@ -27,8 +27,7 @@ Everything beyond that loop (bundled UI, heavy plugins, webhook-primary Git inge
 
 ### Who this is not for (today)
 
-- Teams that need **first-class Helm/OCI charts**, **DR admission hooks**, or **deep multi-tenant RBAC on the control plane** out of the box—those may land later; compare with mature GitOps products if that is your baseline.
-- Organizations that require **only Git webhook-driven sync** with no polling path as a supported primary mode (polling is the core today; webhooks are a planned enhancement).
+- Teams that need **DR admission hooks** or **deep multi-tenant RBAC on the control plane** out of the box—those may land later; compare with mature GitOps products if that is your baseline.
 
 ## Table of Contents
 
@@ -74,6 +73,16 @@ This phase focuses on the core reconciliation loop and operational APIs:
 - **Kubernetes manifest sync**: Applies YAML manifests to target cluster(s) with client-go when Git moves ahead.
 - **REST API**: Manage applications and clusters and trigger sync or cluster checks over HTTP (`gitopsctl start` serves `/api/v1` by default on `:8080`; use `--api-address` to change the bind address).
 - **Logging and status**: Structured logs and CLI commands to inspect registration and sync status.
+
+## Enterprise Hardening & Observability (Phase 4)
+
+GitOpsCTL has been hardened for production-grade workflows:
+
+- **Native Helm & Kustomize Support**: Renders Helm charts and Kustomizations in-memory without needing external binaries.
+- **Mozilla SOPS Integration**: Automatically decrypts secrets stored in Git using AWS KMS, GCP KMS, PGP, etc.
+- **Manual Approval Workflow**: Optional `manual` sync policy to pause deployments until a human approves the commit hash.
+- **Notification Webhooks**: Per-application webhooks to notify external systems (Slack, Discord, etc.) on sync status changes.
+- **Prometheus Metrics**: High-resolution metrics exposed at `/metrics` for monitoring sync duration, failures, and cluster health.
 
 ## Architecture Goals
 
@@ -267,7 +276,21 @@ Development is phased; some items below already exist in code.
 
 We welcome contributions! If you have ideas, bug reports, or want to contribute code, please feel free to open issues or pull requests.
 
-Please review our [Contributing Guidelines](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) before participating. If you discover a security vulnerability, please see our [Security Policy](SECURITY.md).
+## 🤝 Contributing
+
+We welcome contributions! To ensure a high bar for code quality, please follow these steps:
+
+1. **Local Pre-commit Hooks**: We use `pre-commit` to run linting and tests locally.
+   ```bash
+   # Install pre-commit
+   pip install pre-commit
+   # Install the hooks
+   pre-commit install
+   ```
+2. **Checks**: Ensure all tests pass (`go test ./...`) and the linter is happy (`golangci-lint run`).
+3. **PR Template**: Follow the provided Pull Request template when submitting changes.
+
+Please review our [Contributing Guidelines](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md). If you discover a security vulnerability, please see our [Security Policy](SECURITY.md).
 
 ## License
 
