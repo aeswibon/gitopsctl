@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"helm.sh/helm/v3/pkg/action"
+	"helm.sh/helm/v3/pkg/chart/loader"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -102,11 +104,41 @@ func NewClientSet(logger *zap.Logger, kubeconfigPath string) (*ClientSet, error)
 }
 
 // ApplyManifests applies Kubernetes manifests from a given directory to the cluster.
-// It checks if the directory contains a kustomization file and builds it if present.
+// It checks if the directory contains a Helm chart or Kustomization file and builds it if present.
 // Otherwise, it processes all YAML files in the specified directory.
 func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) []error {
 	cs.logger.Info("Applying manifests", zap.String("directory", manifestsDir))
 	var applyErrors []error
+
+	if hasHelmChart(manifestsDir) {
+		cs.logger.Info("Detected Helm Chart, rendering with helm", zap.String("directory", manifestsDir))
+
+		actionConfig := new(action.Configuration)
+		actionConfig.Log = func(format string, v ...interface{}) {
+			cs.logger.Debug(fmt.Sprintf(format, v...))
+		}
+
+		client := action.NewInstall(actionConfig)
+		client.DryRun = true
+		client.ClientOnly = true
+		client.ReleaseName = "gitopsctl-release"
+		client.Namespace = "default"
+
+		chartReq, err := loader.Load(manifestsDir)
+		if err != nil {
+			cs.logger.Error("Failed to load Helm chart", zap.Error(err))
+			return []error{fmt.Errorf("failed to load Helm chart: %w", err)}
+		}
+
+		rel, err := client.Run(chartReq, nil)
+		if err != nil {
+			cs.logger.Error("Helm template rendering failed", zap.Error(err))
+			return []error{fmt.Errorf("helm template rendering failed: %w", err)}
+		}
+
+		cs.logger.Debug("Successfully rendered Helm chart")
+		return cs.applyYAMLData(ctx, []byte(rel.Manifest), filepath.Join(manifestsDir, "Chart.yaml"))
+	}
 
 	fSys := filesys.MakeFsOnDisk()
 	if hasKustomization(fSys, manifestsDir) {
@@ -166,6 +198,18 @@ func hasKustomization(fSys filesys.FileSystem, dir string) bool {
 		if fSys.Exists(filepath.Join(dir, name)) {
 			return true
 		}
+	}
+	return false
+}
+
+func hasHelmChart(dir string) bool {
+	info, err := os.Stat(filepath.Join(dir, "Chart.yaml"))
+	if err == nil && !info.IsDir() {
+		return true
+	}
+	info, err = os.Stat(filepath.Join(dir, "Chart.yml"))
+	if err == nil && !info.IsDir() {
+		return true
 	}
 	return false
 }

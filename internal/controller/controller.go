@@ -56,6 +56,8 @@ const (
 	// AppCommandSync indicates a command to trigger an immediate sync for an app.
 	// This is used to force a synchronization of the application's Git repository
 	AppCommandSync AppCommandType = "SYNC"
+	// AppCommandApprove indicates a command to approve a pending sync for an app.
+	AppCommandApprove AppCommandType = "APPROVE"
 )
 
 // AppCommand represents a command to be executed for a specific application.
@@ -233,6 +235,15 @@ func (c *Controller) StopApp(appName string) {
 // This is useful for forcing a synchronization of the application's Git repository
 func (c *Controller) TriggerSync(appName string) {
 	c.appCommandChan <- AppCommand{Type: AppCommandSync, AppName: appName}
+}
+
+// ApproveSync sends a command to approve a pending sync for an application.
+func (c *Controller) ApproveSync(appName string, commitHash string) {
+	c.appCommandChan <- AppCommand{
+		Type:    AppCommandApprove,
+		AppName: appName,
+		Data:    map[string]any{"commitHash": commitHash},
+	}
 }
 
 // TriggerClusterHealthCheck sends a command to trigger an immediate health check for a cluster.
@@ -420,6 +431,34 @@ func (c *Controller) handleAppCommand(cmd AppCommand, appConfigFile string) {
 		} else {
 			c.logger.Warn("Attempted to trigger sync for non-running application", zap.String("app", cmd.AppName))
 		}
+
+	case AppCommandApprove:
+		c.apps.Lock()
+		// We can't defer Unlock here because we need to call TriggerSync which might take mu
+		appConfig, exists := c.apps.Get(cmd.AppName)
+		if !exists {
+			c.apps.Unlock()
+			c.logger.Error("Attempted to approve sync for non-existent application", zap.String("app", cmd.AppName))
+			return
+		}
+
+		commitHash, ok := cmd.Data["commitHash"].(string)
+		if !ok || commitHash == "" {
+			c.apps.Unlock()
+			c.logger.Error("Invalid or missing commit hash for approval", zap.String("app", cmd.AppName))
+			return
+		}
+
+		appConfig.ApprovedGitHash = commitHash
+		c.logger.Info("Sync approved for application", zap.String("app", cmd.AppName), zap.String("commit", commitHash))
+
+		if err := app.SaveApplications(c.apps, appConfigFile); err != nil {
+			c.logger.Error("Failed to save application status after approval", zap.Error(err))
+		}
+		c.apps.Unlock()
+
+		// Trigger an immediate sync to apply the approved commit
+		c.TriggerSync(cmd.AppName)
 	}
 }
 
@@ -611,6 +650,19 @@ func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *a
 	logger.Info("New changes detected in Git repository",
 		zap.String("oldHash", app.LastSyncedGitHash),
 		zap.String("newHash", currentHash))
+
+	// Manual Approval Check
+	if app.SyncPolicy == "manual" && currentHash != app.ApprovedGitHash {
+		logger.Info("Manual sync policy enabled. Sync paused until approved.",
+			zap.String("commit", currentHash))
+		app.Status = "OutOfSync"
+		app.Message = fmt.Sprintf("Manual approval required for commit %s", currentHash)
+		c.saveAppStatus(app, appConfigFile, true)
+		c.emit(ctx, events.TypeAppSyncSucceeded, map[string]any{ // Using a generic event for now or define a new one
+			"app": app.Name, "cluster": app.ClusterName, "status": "WaitingForApproval", "commit": currentHash,
+		})
+		return
+	}
 
 	manifestsDir := filepath.Join(repoDir, app.Path)
 	if _, err := os.Stat(manifestsDir); os.IsNotExist(err) {

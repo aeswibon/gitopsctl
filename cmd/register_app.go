@@ -23,6 +23,7 @@ var (
 	interval    string // Polling interval for Git repository
 	dryRunApp   bool   // Preview changes without applying them
 	forceApp    bool   // Force overwrite existing application
+	syncPolicy  string // Synchronization policy (auto or manual)
 )
 
 // registrationConfig holds validated configuration for app registration
@@ -34,6 +35,7 @@ type registrationConfig struct {
 	clusterName     string
 	interval        string
 	pollingInterval time.Duration
+	syncPolicy      string
 }
 
 var registerCmd = &cobra.Command{
@@ -147,6 +149,13 @@ func validateAndNormalizeInput() (*registrationConfig, error) {
 		return nil, fmt.Errorf("interval cannot exceed 24 hours")
 	}
 	config.pollingInterval = parsedInterval
+	config.syncPolicy = strings.ToLower(strings.TrimSpace(syncPolicy))
+	if config.syncPolicy == "" {
+		config.syncPolicy = "auto"
+	}
+	if config.syncPolicy != "auto" && config.syncPolicy != "manual" {
+		return nil, fmt.Errorf("invalid sync policy: %s (must be 'auto' or 'manual')", config.syncPolicy)
+	}
 
 	return config, nil
 }
@@ -208,6 +217,7 @@ func createApplication(config *registrationConfig) *app.Application {
 		Status:              "Pending",
 		Message:             "Application registered, awaiting first sync",
 		ConsecutiveFailures: 0,
+		SyncPolicy:          config.syncPolicy,
 	}
 }
 
@@ -226,6 +236,7 @@ func displayDryRunSummary(newApp *app.Application, isUpdate bool) error {
 	fmt.Printf("  Path:           %s\n", newApp.Path)
 	fmt.Printf("  Cluster:        %s\n", newApp.ClusterName)
 	fmt.Printf("  Poll Interval:  %s\n", newApp.Interval)
+	fmt.Printf("  Sync Policy:    %s\n", newApp.SyncPolicy)
 	fmt.Printf("  Status:         %s\n", newApp.Status)
 
 	if isUpdate {
@@ -263,6 +274,7 @@ func saveAndConfirmApplication(apps *app.Applications, newApp *app.Application, 
 	fmt.Printf("  Path:           %s\n", newApp.Path)
 	fmt.Printf("  Target Cluster: %s\n", newApp.ClusterName)
 	fmt.Printf("  Poll Interval:  %s\n", newApp.Interval)
+	fmt.Printf("  Sync Policy:    %s\n", newApp.SyncPolicy)
 	fmt.Printf("  Status:         %s\n", newApp.Status)
 
 	fmt.Printf("\nNext steps:\n")
@@ -280,13 +292,14 @@ func saveAndConfirmApplication(apps *app.Applications, newApp *app.Application, 
 		zap.Bool("is_update", isUpdate),
 	)
 	emitCommandEvent(events.TypeAppRegistered, map[string]any{
-		"app":      newApp.Name,
-		"repoURL":  newApp.RepoURL,
-		"branch":   newApp.Branch,
-		"path":     newApp.Path,
-		"cluster":  newApp.ClusterName,
-		"interval": newApp.Interval,
-		"updated":  isUpdate,
+		"app":        newApp.Name,
+		"repoURL":    newApp.RepoURL,
+		"branch":     newApp.Branch,
+		"path":       newApp.Path,
+		"cluster":    newApp.ClusterName,
+		"interval":   newApp.Interval,
+		"syncPolicy": newApp.SyncPolicy,
+		"updated":    isUpdate,
 	})
 
 	return nil
@@ -308,6 +321,8 @@ func init() {
 		"Branch in the repository")
 	registerCmd.Flags().StringVarP(&interval, "interval", "i", "5m",
 		"Polling interval (min: 10s, max: 24h)")
+	registerCmd.Flags().StringVar(&syncPolicy, "sync-policy", "auto",
+		"Synchronization policy (auto or manual)")
 
 	registerCmd.Flags().BoolVar(&dryRunApp, "dry-run", false,
 		"Preview the registration without applying changes")
