@@ -34,4 +34,5 @@ func RegisterRoutes(g *echo.Group, handler *Handler) {
 	g.GET("/applications/:name", handler.Get)
 	g.DELETE("/applications/:name", handler.Unregister)
 	g.POST("/applications/:name/sync", handler.Sync)
+	g.POST("/applications/:name/approve", handler.Approve)
 }

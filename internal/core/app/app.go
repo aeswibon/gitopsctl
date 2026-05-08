@@ -64,6 +64,14 @@ type Application struct {
 	// ConsecutiveFailures tracks the number of consecutive synchronization failures.
 	// This can be used to implement backoff logic or alerting mechanisms.
 	ConsecutiveFailures int `json:"consecutiveFailures,omitempty"`
+
+	// SyncPolicy defines the synchronization strategy for the application.
+	// Possible values are "auto" (default) and "manual".
+	SyncPolicy string `json:"syncPolicy,omitempty"`
+
+	// ApprovedGitHash stores the Git commit hash that has been approved for deployment.
+	// This is used when the SyncPolicy is set to "manual".
+	ApprovedGitHash string `json:"approvedGitHash,omitempty"`
 }
 
 // Applications represents a collection of Application objects.
@@ -199,7 +207,7 @@ func SaveApplications(apps *Applications, filePath string) error {
 // It returns the headers for the table representation of the Application.
 func (a *Application) ToTableHeaders(details bool) []string {
 	if details {
-		return []string{"NAME", "REPO URL", "BRANCH", "PATH", "CLUSTER", "INTERVAL", "STATUS", "LAST SYNCED HASH", "FAILURES", "MESSAGE"}
+		return []string{"NAME", "REPO URL", "BRANCH", "PATH", "CLUSTER", "INTERVAL", "STATUS", "SYNC POLICY", "LAST SYNCED HASH", "FAILURES", "MESSAGE"}
 	}
 	return []string{"NAME", "REPO URL", "BRANCH", "PATH", "CLUSTER", "INTERVAL"}
 }
@@ -220,6 +228,7 @@ func (a *Application) ToTableRow(details bool) []string {
 			a.ClusterName,
 			a.Interval,
 			a.Status,
+			common.DefaultIfEmpty(a.SyncPolicy, "auto"),
 			hash,
 			fmt.Sprintf("%d", a.ConsecutiveFailures),
 			common.TruncateString(a.Message, 40),
