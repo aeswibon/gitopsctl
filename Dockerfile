@@ -10,7 +10,8 @@ USER gitopsctl
 WORKDIR /app
 
 # GoReleaser will copy the built binary into the image
-COPY gitopsctl /usr/local/bin/gitopsctl
+ARG TARGETPLATFORM
+COPY ${TARGETPLATFORM}/gitopsctl /usr/local/bin/gitopsctl
 
 ENTRYPOINT ["/usr/local/bin/gitopsctl"]
 CMD ["start"]

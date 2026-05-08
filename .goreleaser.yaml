@@ -17,7 +17,8 @@ builds:
       - arm64
 
 archives:
-  - format: tar.gz
+  - formats:
+      - tar.gz
     name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
@@ -27,7 +28,8 @@ archives:
       {{- if .Arm }}v{{ .Arm }}{{ end }}
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
 
 changelog:
   sort: asc
@@ -36,37 +38,19 @@ changelog:
       - '^docs:'
       - '^test:'
 
-dockers:
-  - image_templates:
-      - "ghcr.io/aeswibon/gitopsctl:{{ .Tag }}-amd64"
-    dockerfile: Dockerfile
-    use: buildx
-    build_flag_templates:
-      - "--platform=linux/amd64"
-  - image_templates:
-      - "ghcr.io/aeswibon/gitopsctl:{{ .Tag }}-arm64"
-    dockerfile: Dockerfile
-    use: buildx
-    build_flag_templates:
-      - "--platform=linux/arm64"
+dockers_v2:
+  - images:
+      - "ghcr.io/aeswibon/gitopsctl"
+    tags:
+      - "{{ .Tag }}"
+      - "latest"
 
-docker_manifests:
-  - name_template: ghcr.io/aeswibon/gitopsctl:{{ .Tag }}
-    image_templates:
-      - "ghcr.io/aeswibon/gitopsctl:{{ .Tag }}-amd64"
-      - "ghcr.io/aeswibon/gitopsctl:{{ .Tag }}-arm64"
-  - name_template: ghcr.io/aeswibon/gitopsctl:latest
-    image_templates:
-      - "ghcr.io/aeswibon/gitopsctl:{{ .Tag }}-amd64"
-      - "ghcr.io/aeswibon/gitopsctl:{{ .Tag }}-arm64"
-
-brews:
-  - repository:
+homebrew_casks:
+  - name: gitopsctl
+    repository:
       owner: aeswibon
       name: homebrew-gitopsctl
       token: "{{ .Env.GITHUB_TOKEN }}"
-    directory: Formula
+    directory: Casks
     homepage: "https://github.com/aeswibon/gitopsctl"
     description: "A minimalistic, self-hosted, and externally managed GitOps controller."
-    test: |
-      system "#{bin}/gitopsctl --help"
