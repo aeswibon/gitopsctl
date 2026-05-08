@@ -50,7 +50,7 @@ homebrew_casks:
     repository:
       owner: aeswibon
       name: homebrew-gitopsctl
-      token: "{{ .Env.GITHUB_TOKEN }}"
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     directory: Casks
     homepage: "https://github.com/aeswibon/gitopsctl"
     description: "A minimalistic, self-hosted, and externally managed GitOps controller."
