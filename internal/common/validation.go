@@ -27,7 +27,7 @@ func IsValidGitURL(s string) bool {
 // It checks that the path is not empty or just slashes after trimming leading and trailing slashes.
 // This is useful to ensure that the path provided for manifests in the repository is meaningful.
 func IsValidRepoPath(s string) bool {
-	trimmed := strings.TrimPrefix(strings.TrimSuffix(s, "/"), "/")
+	trimmed := strings.Trim(s, "/")
 	return trimmed != "" // Path cannot be empty or just slashes after trimming
 }
 

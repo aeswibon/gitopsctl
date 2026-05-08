@@ -728,8 +728,6 @@ func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *a
 		"previousCommit": previousHash,
 	})
 
-
-
 	c.saveAppStatus(app, appConfigFile, previousStatus != app.Status || previousHash != app.LastSyncedGitHash || previousFailures != app.ConsecutiveFailures)
 }
 
@@ -747,7 +745,6 @@ func (c *Controller) notify(app *app.Application) {
 		Timestamp: time.Now(),
 	})
 }
-
 
 // saveAppStatus is a helper to update and persist the application's status.
 //

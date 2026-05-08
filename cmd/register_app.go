@@ -15,14 +15,14 @@ import (
 
 var (
 	// Flags for the register command
-	appName     string // Name of the application
-	repoURL     string // Git repository URL
-	branch      string // Branch in the repository (optional, default is "main")
-	pathInRepo  string // Path to Kubernetes manifests in the repository
-	clusterName string // Name of the Kubernetes cluster
-	interval    string // Polling interval for Git repository
-	dryRunApp   bool   // Preview changes without applying them
-	forceApp    bool   // Force overwrite existing application
+	appName       string // Name of the application
+	repoURL       string // Git repository URL
+	branch        string // Branch in the repository (optional, default is "main")
+	pathInRepo    string // Path to Kubernetes manifests in the repository
+	clusterName   string // Name of the Kubernetes cluster
+	interval      string // Polling interval for Git repository
+	dryRunApp     bool   // Preview changes without applying them
+	forceApp      bool   // Force overwrite existing application
 	syncPolicy    string // Synchronization policy (auto or manual)
 	webhookURL    string // Webhook URL for notifications
 	webhookSecret string // Webhook secret for signing

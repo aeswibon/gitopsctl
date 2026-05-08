@@ -143,6 +143,11 @@ func (a *Applications) List() []*Application {
 	return list
 }
 
+// Len returns the number of applications in the collection.
+func (a *Applications) Len() int {
+	return len(a.Apps)
+}
+
 // Delete removes an application from the collection by its name.
 // The caller is responsible for acquiring the necessary write lock before calling this method.
 func (a *Applications) Delete(name string) {

@@ -223,7 +223,6 @@ func (cs *ClientSet) decryptDirectory(dir string) error {
 	})
 }
 
-
 func hasKustomization(fSys filesys.FileSystem, dir string) bool {
 	for _, name := range []string{"kustomization.yaml", "kustomization.yml", "Kustomization"} {
 		if fSys.Exists(filepath.Join(dir, name)) {

@@ -110,6 +110,11 @@ func (c *Clusters) Delete(name string) {
 	delete(c.Cs, name)
 }
 
+// Len returns the number of clusters in the collection.
+func (c *Clusters) Len() int {
+	return len(c.Cs)
+}
+
 // LoadClusters loads clusters from the specified file path.
 // It reads the JSON data from the file, unmarshals it into Cluster objects,
 // and populates the Clusters collection. If the file does not exist, it returns an empty collection.

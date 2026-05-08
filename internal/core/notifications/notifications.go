@@ -14,12 +14,12 @@ import (
 
 // Notification represents a sync event notification.
 type Notification struct {
-	App         string    `json:"app"`
-	Cluster     string    `json:"cluster"`
-	Status      string    `json:"status"`
-	Message     string    `json:"message"`
-	Commit      string    `json:"commit"`
-	Timestamp   time.Time `json:"timestamp"`
+	App       string    `json:"app"`
+	Cluster   string    `json:"cluster"`
+	Status    string    `json:"status"`
+	Message   string    `json:"message"`
+	Commit    string    `json:"commit"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // SendWebhook sends a notification to the specified webhook URL.
