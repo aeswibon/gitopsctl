@@ -19,17 +19,17 @@ func NewCustomValidator() *CustomValidator {
 	v := validator.New()
 
 	// Register custom validation for Git URLs
-	v.RegisterValidation("giturl", func(fl validator.FieldLevel) bool {
+	_ = v.RegisterValidation("giturl", func(fl validator.FieldLevel) bool {
 		return common.IsValidGitURL(fl.Field().String())
 	})
 
 	// Register custom validation for repository paths
-	v.RegisterValidation("path", func(fl validator.FieldLevel) bool {
+	_ = v.RegisterValidation("path", func(fl validator.FieldLevel) bool {
 		return common.IsValidRepoPath(fl.Field().String())
 	})
 
 	// Register custom validation for kubeconfig files
-	v.RegisterValidation("kubeconfigfile", func(fl validator.FieldLevel) bool {
+	_ = v.RegisterValidation("kubeconfigfile", func(fl validator.FieldLevel) bool {
 		if err := common.ValidateKubeconfigFile(fl.Field().String()); err != nil {
 			return false
 		}

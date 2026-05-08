@@ -136,7 +136,7 @@ func handleEmptyAppsForList(statusFilter string) error {
 func init() {
 	rootCmd.AddCommand(listAppCmd)
 	utils.AddListFlags(listAppCmd, &listAppOpts, "name")
-	listAppCmd.RegisterFlagCompletionFunc("sort-by", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	_ = listAppCmd.RegisterFlagCompletionFunc("sort-by", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"name", "status", "branch"}, cobra.ShellCompDirectiveDefault
 	})
 }

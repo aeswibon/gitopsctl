@@ -83,10 +83,10 @@ func init() {
 	statusClusterCmd.Flags().Lookup("status").Usage = "Filter by status: all, active, unreachable, error, pending"
 	statusClusterCmd.Flags().Lookup("sort-by").Usage = "Sort by: name, status, registered"
 
-	statusClusterCmd.RegisterFlagCompletionFunc("status", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	_ = statusClusterCmd.RegisterFlagCompletionFunc("status", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"all", "active", "unreachable", "error", "pending"}, cobra.ShellCompDirectiveDefault
 	})
-	statusClusterCmd.RegisterFlagCompletionFunc("sort-by", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	_ = statusClusterCmd.RegisterFlagCompletionFunc("sort-by", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"name", "status", "registered"}, cobra.ShellCompDirectiveDefault
 	})
 }

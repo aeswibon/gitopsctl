@@ -314,8 +314,8 @@ func init() {
 	registerCmd.Flags().BoolVar(&forceApp, "force", false,
 		"Force overwrite existing application")
 
-	registerCmd.MarkFlagRequired("name")
-	registerCmd.MarkFlagRequired("repo")
-	registerCmd.MarkFlagRequired("path")
-	registerCmd.MarkFlagRequired("cluster")
+	_ = registerCmd.MarkFlagRequired("name")
+	_ = registerCmd.MarkFlagRequired("repo")
+	_ = registerCmd.MarkFlagRequired("path")
+	_ = registerCmd.MarkFlagRequired("cluster")
 }

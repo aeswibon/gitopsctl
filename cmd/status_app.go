@@ -57,10 +57,10 @@ func init() {
 	statusAppCmd.Flags().Lookup("status").Usage = "Filter by status: all, synced, error, pending, stopped"
 	statusAppCmd.Flags().Lookup("sort-by").Usage = "Sort by: name, status, branch"
 
-	statusAppCmd.RegisterFlagCompletionFunc("status", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	_ = statusAppCmd.RegisterFlagCompletionFunc("status", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"all", "synced", "error", "pending", "stopped"}, cobra.ShellCompDirectiveDefault
 	})
-	statusAppCmd.RegisterFlagCompletionFunc("sort-by", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	_ = statusAppCmd.RegisterFlagCompletionFunc("sort-by", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"name", "status", "branch"}, cobra.ShellCompDirectiveDefault
 	})
 }

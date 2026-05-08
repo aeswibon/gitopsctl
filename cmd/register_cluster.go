@@ -261,8 +261,8 @@ func init() {
 	registerClusterCmd.Flags().BoolVar(&dryRunCluster, "dry-run", false, "Preview registration without applying changes")
 	registerClusterCmd.Flags().BoolVar(&testConnection, "test", false, "Test cluster connectivity during registration")
 
-	registerClusterCmd.MarkFlagRequired("name")
-	registerClusterCmd.RegisterFlagCompletionFunc("kubeconfig", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	_ = registerClusterCmd.MarkFlagRequired("name")
+	_ = registerClusterCmd.RegisterFlagCompletionFunc("kubeconfig", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{}, cobra.ShellCompDirectiveFilterFileExt
 	})
 }

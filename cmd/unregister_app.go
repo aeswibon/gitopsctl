@@ -210,5 +210,5 @@ func init() {
 	unregisterAppCmd.Flags().BoolVar(&dryRunUnregisterApp, "dry-run", false,
 		"Preview the unregistration without applying changes")
 
-	unregisterAppCmd.MarkFlagRequired("name")
+	_ = unregisterAppCmd.MarkFlagRequired("name")
 }

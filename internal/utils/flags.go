@@ -21,10 +21,10 @@ func AddListFlags(cmd *cobra.Command, opts *ListOptions, defaultSort string) {
 	cmd.Flags().StringVar(&opts.StatusFilter, "status", "all", "Filter by status: all, active, inactive, error, pending")
 	cmd.Flags().StringVar(&opts.SortBy, "sort-by", defaultSort, "Sort by: name, status, registered")
 
-	cmd.RegisterFlagCompletionFunc("output", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	_ = cmd.RegisterFlagCompletionFunc("output", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"table", "json", "yaml"}, cobra.ShellCompDirectiveDefault
 	})
-	cmd.RegisterFlagCompletionFunc("status", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	_ = cmd.RegisterFlagCompletionFunc("status", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"all", "active", "inactive", "error", "pending"}, cobra.ShellCompDirectiveDefault
 	})
 }

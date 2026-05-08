@@ -101,5 +101,5 @@ func init() {
 	unregisterClusterCmd.Flags().BoolVarP(&forceUnregisterCluster, "force", "f", false,
 		"Skip confirmation prompts")
 
-	unregisterClusterCmd.MarkFlagRequired("name")
+	_ = unregisterClusterCmd.MarkFlagRequired("name")
 }

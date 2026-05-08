@@ -24,14 +24,7 @@ var (
 	eventsWebhookTimeout time.Duration
 )
 
-var (
-	// List Global flags
-	outputFormat string // Output format: table, json, yaml
-	showStatus   string // Filter by status: all, active, inactive, error
-	sortBy       string // Sort by: name, status, registered
-	showDetails  bool   // Show additional details
-	noHeader     bool   // Hide table headers
-)
+
 
 var rootCmd = &cobra.Command{
 	Use:   "gitopsctl",

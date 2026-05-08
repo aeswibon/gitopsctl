@@ -132,7 +132,7 @@ func handleEmptyClustersForList(statusFilter string) error {
 func init() {
 	rootCmd.AddCommand(listClusterCmd)
 	utils.AddListFlags(listClusterCmd, &listClusterOpts, "name")
-	listClusterCmd.RegisterFlagCompletionFunc("sort-by", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	_ = listClusterCmd.RegisterFlagCompletionFunc("sort-by", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"name", "status", "registered"}, cobra.ShellCompDirectiveDefault
 	})
 }
