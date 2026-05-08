@@ -54,7 +54,7 @@ func SendWebhook(logger *zap.Logger, url, secret string, n Notification) {
 		logger.Warn("Failed to send webhook notification", zap.String("url", url), zap.Error(err))
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		logger.Warn("Webhook returned error status", zap.String("url", url), zap.Int("status", resp.StatusCode))
