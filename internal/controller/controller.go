@@ -13,6 +13,7 @@ import (
 	"aeswibon.com/github/gitopsctl/internal/core/cluster"
 	"aeswibon.com/github/gitopsctl/internal/core/git"
 	"aeswibon.com/github/gitopsctl/internal/core/k8s"
+	"aeswibon.com/github/gitopsctl/internal/core/notifications"
 	"aeswibon.com/github/gitopsctl/internal/events"
 	"aeswibon.com/github/gitopsctl/internal/metrics"
 	"go.uber.org/zap"
@@ -605,16 +606,21 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 // trigger is one of: initial, poll, manual.
 func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *app.Application, repoDir string, k8sClient *k8s.ClientSet, appConfigFile string, trigger string) {
 	startTime := time.Now()
+	previousStatus := app.Status
+	previousHash := app.LastSyncedGitHash
+	previousFailures := app.ConsecutiveFailures
+
 	defer func() {
+		// Send notification if status or hash changed
+		if previousStatus != app.Status || previousHash != app.LastSyncedGitHash {
+			c.notify(app)
+		}
+
 		metrics.AppSyncTotal.WithLabelValues(app.Name, app.ClusterName, app.Status).Inc()
 		if app.Status == "Synced" {
 			metrics.AppSyncDuration.WithLabelValues(app.Name, app.ClusterName).Observe(time.Since(startTime).Seconds())
 		}
 	}()
-
-	previousStatus := app.Status
-	previousHash := app.LastSyncedGitHash
-	previousFailures := app.ConsecutiveFailures
 
 	c.emit(ctx, events.TypeAppSyncStarted, map[string]any{
 		"app":            app.Name,
@@ -723,6 +729,21 @@ func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *a
 	})
 
 	c.saveAppStatus(app, appConfigFile, previousStatus != app.Status || previousHash != app.LastSyncedGitHash || previousFailures != app.ConsecutiveFailures)
+}
+
+func (c *Controller) notify(app *app.Application) {
+	if app.WebhookURL == "" {
+		return
+	}
+
+	go notifications.SendWebhook(c.logger, app.WebhookURL, app.WebhookSecret, notifications.Notification{
+		App:       app.Name,
+		Cluster:   app.ClusterName,
+		Status:    app.Status,
+		Message:   app.Message,
+		Commit:    app.LastSyncedGitHash,
+		Timestamp: time.Now(),
+	})
 }
 
 // saveAppStatus is a helper to update and persist the application's status.

@@ -72,6 +72,12 @@ type Application struct {
 	// ApprovedGitHash stores the Git commit hash that has been approved for deployment.
 	// This is used when the SyncPolicy is set to "manual".
 	ApprovedGitHash string `json:"approvedGitHash,omitempty"`
+
+	// WebhookURL is an optional endpoint to send sync notifications to.
+	WebhookURL string `json:"webhookUrl,omitempty"`
+
+	// WebhookSecret is an optional secret to sign webhook payloads.
+	WebhookSecret string `json:"webhookSecret,omitempty"`
 }
 
 // Applications represents a collection of Application objects.
@@ -135,6 +141,11 @@ func (a *Applications) List() []*Application {
 		list = append(list, app)
 	}
 	return list
+}
+
+// Len returns the number of applications in the collection.
+func (a *Applications) Len() int {
+	return len(a.Apps)
 }
 
 // Delete removes an application from the collection by its name.

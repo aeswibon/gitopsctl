@@ -26,10 +26,17 @@ First off, thank you for considering contributing to GitOpsCTL! It's people like
    ```bash
    go build -o gitopsctl .
    ```
-5. **Run tests**:
+5. **Set up pre-commit**:
+   We use `pre-commit` to ensure code quality before every commit.
+   ```bash
+   pip install pre-commit
+   pre-commit install
+   ```
+6. **Run tests**:
    ```bash
    go test ./...
    ```
+
 
 ## How to Contribute
 
@@ -43,7 +50,7 @@ git checkout -b feature/my-awesome-feature
 ```
 
 ### 3. Make Changes
-Write your code, making sure to follow standard Go conventions. 
+Write your code, making sure to follow standard Go conventions.
 - Run `go fmt ./...` to format your code.
 - Run `go vet ./...` to catch common mistakes.
 - Ensure all existing and new tests pass.
