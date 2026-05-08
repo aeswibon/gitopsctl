@@ -54,3 +54,9 @@ homebrew_casks:
     directory: Casks
     homepage: "https://github.com/aeswibon/gitopsctl"
     description: "A minimalistic, self-hosted, and externally managed GitOps controller."
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/gitopsctl"]
+          end
