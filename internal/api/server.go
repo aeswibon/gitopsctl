@@ -15,6 +15,7 @@ import (
 	"aeswibon.com/github/gitopsctl/internal/events"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 )
 
@@ -79,6 +80,7 @@ func (s *Server) registerRoutes() {
 	}
 
 	s.e.GET("/health", s.HealthCheck)
+	s.e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 
 }
 
