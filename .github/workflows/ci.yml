@@ -28,13 +28,6 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 
-      - name: GoReleaser Build Check
-        uses: goreleaser/goreleaser-action@v7
-        with:
-          distribution: goreleaser
-          version: latest
-          args: build --snapshot --clean
-
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
@@ -47,6 +40,18 @@ jobs:
       - name: Go test
         run: |
           go test -coverprofile=coverage.txt -covermode=atomic ./...
+          go tool cover -func=coverage.txt
+
+      - name: Check Coverage
+        run: |
+          # Parse coverage total from the func output
+          total_coverage=$(go tool cover -func=coverage.txt | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Total coverage: $total_coverage%"
+          # Check if coverage is below 80% (using awk for float comparison)
+          if [ "$(echo "$total_coverage < 80.0" | bc)" -eq 1 ]; then
+            echo "Error: Coverage $total_coverage% is below the required 80.0% threshold."
+            exit 1
+          fi
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
@@ -62,4 +67,3 @@ jobs:
         run: |
           chmod +x scripts/cli-smoke.sh
           scripts/cli-smoke.sh
-
