@@ -14,6 +14,7 @@ import (
 	"aeswibon.com/github/gitopsctl/internal/core/git"
 	"aeswibon.com/github/gitopsctl/internal/core/k8s"
 	"aeswibon.com/github/gitopsctl/internal/events"
+	"aeswibon.com/github/gitopsctl/internal/metrics"
 	"go.uber.org/zap"
 )
 
@@ -337,10 +338,12 @@ func (c *Controller) performClusterHealthCheck(ctx context.Context, cl *cluster.
 			logger.Warn("Cluster connectivity check failed", zap.Error(err))
 			cl.Status = "Unreachable"
 			cl.Message = fmt.Sprintf("Connectivity failed: %v", err)
+			metrics.ClusterStatus.WithLabelValues(cl.Name).Set(0)
 		} else {
 			logger.Debug("Cluster connectivity check successful.")
 			cl.Status = "Active"
 			cl.Message = "Connectivity successful."
+			metrics.ClusterStatus.WithLabelValues(cl.Name).Set(1)
 		}
 	}
 	cl.LastCheckedAt = time.Now()
@@ -601,6 +604,14 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 // It updates the application's status and handles errors appropriately.
 // trigger is one of: initial, poll, manual.
 func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *app.Application, repoDir string, k8sClient *k8s.ClientSet, appConfigFile string, trigger string) {
+	startTime := time.Now()
+	defer func() {
+		metrics.AppSyncTotal.WithLabelValues(app.Name, app.ClusterName, app.Status).Inc()
+		if app.Status == "Synced" {
+			metrics.AppSyncDuration.WithLabelValues(app.Name, app.ClusterName).Observe(time.Since(startTime).Seconds())
+		}
+	}()
+
 	previousStatus := app.Status
 	previousHash := app.LastSyncedGitHash
 	previousFailures := app.ConsecutiveFailures
