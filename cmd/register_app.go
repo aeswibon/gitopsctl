@@ -23,7 +23,9 @@ var (
 	interval    string // Polling interval for Git repository
 	dryRunApp   bool   // Preview changes without applying them
 	forceApp    bool   // Force overwrite existing application
-	syncPolicy  string // Synchronization policy (auto or manual)
+	syncPolicy    string // Synchronization policy (auto or manual)
+	webhookURL    string // Webhook URL for notifications
+	webhookSecret string // Webhook secret for signing
 )
 
 // registrationConfig holds validated configuration for app registration
@@ -36,6 +38,8 @@ type registrationConfig struct {
 	interval        string
 	pollingInterval time.Duration
 	syncPolicy      string
+	webhookURL      string
+	webhookSecret   string
 }
 
 var registerCmd = &cobra.Command{
@@ -156,6 +160,8 @@ func validateAndNormalizeInput() (*registrationConfig, error) {
 	if config.syncPolicy != "auto" && config.syncPolicy != "manual" {
 		return nil, fmt.Errorf("invalid sync policy: %s (must be 'auto' or 'manual')", config.syncPolicy)
 	}
+	config.webhookURL = strings.TrimSpace(webhookURL)
+	config.webhookSecret = strings.TrimSpace(webhookSecret)
 
 	return config, nil
 }
@@ -218,6 +224,8 @@ func createApplication(config *registrationConfig) *app.Application {
 		Message:             "Application registered, awaiting first sync",
 		ConsecutiveFailures: 0,
 		SyncPolicy:          config.syncPolicy,
+		WebhookURL:          config.webhookURL,
+		WebhookSecret:       config.webhookSecret,
 	}
 }
 
@@ -323,6 +331,10 @@ func init() {
 		"Polling interval (min: 10s, max: 24h)")
 	registerCmd.Flags().StringVar(&syncPolicy, "sync-policy", "auto",
 		"Synchronization policy (auto or manual)")
+	registerCmd.Flags().StringVar(&webhookURL, "webhook-url", "",
+		"Webhook URL for sync notifications")
+	registerCmd.Flags().StringVar(&webhookSecret, "webhook-secret", "",
+		"Optional secret to sign webhook payloads")
 
 	registerCmd.Flags().BoolVar(&dryRunApp, "dry-run", false,
 		"Preview the registration without applying changes")

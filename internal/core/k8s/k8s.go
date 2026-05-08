@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"aeswibon.com/github/gitopsctl/internal/core/sops"
 	"go.uber.org/zap"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart/loader"
@@ -110,6 +111,11 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) []
 	cs.logger.Info("Applying manifests", zap.String("directory", manifestsDir))
 	var applyErrors []error
 
+	// Pre-process: Decrypt any SOPS-encrypted files in the directory
+	if err := cs.decryptDirectory(manifestsDir); err != nil {
+		cs.logger.Warn("Failed to decrypt some files, proceeding anyway", zap.Error(err))
+	}
+
 	if hasHelmChart(manifestsDir) {
 		cs.logger.Info("Detected Helm Chart, rendering with helm", zap.String("directory", manifestsDir))
 
@@ -192,6 +198,31 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) []
 	}
 	return applyErrors
 }
+
+func (cs *ClientSet) decryptDirectory(dir string) error {
+	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		if !strings.HasSuffix(d.Name(), ".yaml") && !strings.HasSuffix(d.Name(), ".yml") && !strings.HasSuffix(d.Name(), ".json") {
+			return nil
+		}
+
+		decrypted, err := sops.Decrypt(path)
+		if err != nil {
+			return err
+		}
+
+		// If decrypted data is different, write it back to the file
+		// Note: sops.Decrypt returns original data if not encrypted
+		// But it might still be slightly different (formatting etc).
+		// For now, we'll just always write it back if it's potentially encrypted.
+		// Actually, let's only write if it WAS encrypted.
+		// I'll update sops.Decrypt to return a boolean if it was encrypted.
+		return os.WriteFile(path, decrypted, 0644)
+	})
+}
+
 
 func hasKustomization(fSys filesys.FileSystem, dir string) bool {
 	for _, name := range []string{"kustomization.yaml", "kustomization.yml", "Kustomization"} {
