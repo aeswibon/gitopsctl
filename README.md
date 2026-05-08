@@ -1,5 +1,9 @@
 # GitOpsCTL: A Lightweight GitOps Control Plane for Kubernetes
 
+<p align="center">
+  <img src="assets/logo.png" alt="GitOpsCTL Logo" width="200" />
+</p>
+
 [![Build Status](https://github.com/aeswibon/gitopsctl/actions/workflows/ci.yml/badge.svg)](https://github.com/aeswibon/gitopsctl/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/aeswibon/gitopsctl)](https://goreportcard.com/report/github.com/aeswibon/gitopsctl)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -90,7 +94,17 @@ GitOpsCTL is built with a clear architectural vision:
   - **For Mac users**: We highly recommend OrbStack for a fast and lightweight local Kubernetes environment. Enable Kubernetes in OrbStack's settings.
   - Ensure your kubectl is configured to connect to your cluster (e.g., via ~/.kube/config).
 
-### Clone the Repository
+### Install via Homebrew (macOS / Linux)
+
+The easiest way to install GitOpsCTL is using Homebrew:
+
+```bash
+brew install aeswibon/gitopsctl/gitopsctl
+```
+
+### Install from Source
+
+**Clone the Repository:**
 
 ```bash
 git clone https://github.com/aeswibon/gitopsctl.git
