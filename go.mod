@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/spf13/cobra v1.10.2
-	go.uber.org/zap v1.27.0
+	go.uber.org/zap v1.28.0
 	helm.sh/helm/v3 v3.20.2
 	k8s.io/apimachinery v0.35.1
 	k8s.io/client-go v0.35.1
