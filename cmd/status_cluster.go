@@ -50,15 +50,15 @@ var statusClusterCmd = &cobra.Command{
 		fmt.Println("--- Kubernetes Cluster Health Status ---")
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', tabwriter.TabIndent)
 
-		fmt.Fprintln(w, "NAME\tSTATUS\tMESSAGE\tLAST CHECKED\tKUBECONFIG PATH")
-		fmt.Fprintln(w, "----\t------\t-------\t------------\t---------------")
+		_, _ = fmt.Fprintln(w, "NAME\tSTATUS\tMESSAGE\tLAST CHECKED\tKUBECONFIG PATH")
+		_, _ = fmt.Fprintln(w, "----\t------\t-------\t------------\t---------------")
 
 		for _, cl := range clusters.List() {
 			lastChecked := "N/A"
 			if !cl.LastCheckedAt.IsZero() {
 				lastChecked = cl.LastCheckedAt.Format("2006-01-02 15:04:05 MST")
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 				cl.Name,
 				cl.Status,
 				cl.Message,
@@ -66,7 +66,7 @@ var statusClusterCmd = &cobra.Command{
 				cl.KubeconfigPath,
 			)
 		}
-		w.Flush()
+		_ = w.Flush()
 		fmt.Println("--------------------------------------")
 
 		return nil

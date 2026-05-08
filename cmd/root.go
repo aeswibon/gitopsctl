@@ -24,8 +24,6 @@ var (
 	eventsWebhookTimeout time.Duration
 )
 
-
-
 var rootCmd = &cobra.Command{
 	Use:   "gitopsctl",
 	Short: "A lightweight GitOps controller for Kubernetes",

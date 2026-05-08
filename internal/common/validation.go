@@ -63,7 +63,7 @@ func ValidateKubeconfigFile(path string) error {
 	if err != nil {
 		return fmt.Errorf("kubeconfig file is not readable: %s\nError: %w", path, err)
 	}
-	file.Close()
+	_ = file.Close()
 
 	if err := validateKubeconfigStructure(path); err != nil {
 		return fmt.Errorf("invalid kubeconfig file: %w", err)

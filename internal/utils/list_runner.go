@@ -59,15 +59,15 @@ func RunListCommand(
 // RenderTable renders items as a table.
 func RenderTable(items []Renderable, noHeader bool, showDetails bool) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', tabwriter.TabIndent)
-	defer w.Flush()
+	defer func() { _ = w.Flush() }()
 
 	if !noHeader && len(items) > 0 {
-		fmt.Fprintln(w, strings.Join(items[0].ToTableHeaders(showDetails), "\t"))
-		fmt.Fprintln(w, strings.Join(generateSeparator(items[0].ToTableHeaders(showDetails)), "\t"))
+		_, _ = fmt.Fprintln(w, strings.Join(items[0].ToTableHeaders(showDetails), "\t"))
+		_, _ = fmt.Fprintln(w, strings.Join(generateSeparator(items[0].ToTableHeaders(showDetails)), "\t"))
 	}
 
 	for _, item := range items {
-		fmt.Fprintln(w, strings.Join(item.ToTableRow(showDetails), "\t"))
+		_, _ = fmt.Fprintln(w, strings.Join(item.ToTableRow(showDetails), "\t"))
 	}
 	return nil
 }
