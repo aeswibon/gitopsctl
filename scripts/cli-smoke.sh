@@ -2,14 +2,29 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BIN="$REPO_ROOT/.tmp_gitopsctl_cli_smoke_bin"
+TESTROOT="$(mktemp -d)"
+mkdir -p "$TESTROOT/configs"
+BIN="$TESTROOT/gitopsctl"
+
+cleanup() {
+  # Stop background processes if they exist.
+  if [[ -n "${PID:-}" ]]; then
+    kill "${PID}" >/dev/null 2>&1 || true
+    wait "${PID}" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${APID:-}" ]]; then
+    kill "${APID}" >/dev/null 2>&1 || true
+    wait "${APID}" >/dev/null 2>&1 || true
+  fi
+  if [[ "${KEEP_TESTROOT:-0}" != "1" ]]; then
+    rm -rf "$TESTROOT"
+  fi
+}
+trap cleanup EXIT
 
 cd "$REPO_ROOT"
 go build -o "$BIN" .
 
-TESTROOT="$(mktemp -d)"
-mkdir -p "$TESTROOT/configs"
-cp "$BIN" "$TESTROOT/gitopsctl"
 chmod +x "$TESTROOT/gitopsctl"
 
 cat > "$TESTROOT/configs/clusters.json" <<'EOF'
@@ -119,7 +134,9 @@ if [[ "${RUN_ACTUAL_SCENARIO:-0}" == "1" ]] && command -v kubectl >/dev/null 2>&
   if [[ ! -f "$KCFG" ]]; then
     echo "ACTUAL_SCENARIO=skipped (no readable kubeconfig path found)"
     echo "CLI_SMOKE_OK"
-    echo "TESTROOT=$TESTROOT"
+    if [[ "${KEEP_TESTROOT:-0}" == "1" ]]; then
+      echo "TESTROOT=$TESTROOT"
+    fi
     exit 0
   fi
   cp "$KCFG" "$TESTROOT/real.kubeconfig"
@@ -132,7 +149,9 @@ if [[ "${RUN_ACTUAL_SCENARIO:-0}" == "1" ]] && command -v kubectl >/dev/null 2>&
   else
     echo "ACTUAL_SCENARIO=skipped (cluster registration failed)"
     echo "CLI_SMOKE_OK"
-    echo "TESTROOT=$TESTROOT"
+    if [[ "${KEEP_TESTROOT:-0}" == "1" ]]; then
+      echo "TESTROOT=$TESTROOT"
+    fi
     exit 0
   fi
 
@@ -163,4 +182,6 @@ else
 fi
 
 echo "CLI_SMOKE_OK"
-echo "TESTROOT=$TESTROOT"
+if [[ "${KEEP_TESTROOT:-0}" == "1" ]]; then
+  echo "TESTROOT=$TESTROOT"
+fi

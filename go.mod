@@ -5,6 +5,7 @@ go 1.24.3
 require (
 	github.com/go-git/go-git/v5 v5.16.1
 	github.com/go-playground/validator/v10 v10.26.0
+	github.com/google/uuid v1.6.0
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/spf13/cobra v1.9.1
 	go.uber.org/zap v1.27.0
@@ -35,7 +36,6 @@ require (
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/google/gnostic-models v0.6.9 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/josharian/intern v1.0.0 // indirect

@@ -1,2 +1,3 @@
 configs
 gitopsctl
+.tmp_gitopsctl*

@@ -76,10 +76,13 @@ func runRegisterClusterCommand(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	_, clusterExists, err := clustercore.VerifyCluster(config.name)
+	existingClusters, err := clustercore.LoadClusters(clustercore.DefaultClusterConfigFile)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to load existing clusters: %w", err)
 	}
+	existingClusters.RLock()
+	_, clusterExists := existingClusters.Get(config.name)
+	existingClusters.RUnlock()
 
 	if err := handleExistingCluster(clusterExists, config.name); err != nil {
 		return err

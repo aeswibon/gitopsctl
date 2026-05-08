@@ -1,5 +1,9 @@
 # GitOpsCTL: A Lightweight GitOps Control Plane for Kubernetes
 
+[![Build Status](https://github.com/aeswibon/gitopsctl/actions/workflows/ci.yml/badge.svg)](https://github.com/aeswibon/gitopsctl/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/aeswibon/gitopsctl)](https://goreportcard.com/report/github.com/aeswibon/gitopsctl)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 **GitOpsCTL** (GitOps Control Tool) is a minimalistic, self-hosted, and externally managed GitOps controller written in Go. Designed to complement existing tools like ArgoCD and FluxCD, GitOpsCTL offers a simpler, more flexible alternative for Kubernetes application deployments, especially suited for smaller teams, edge environments, or scenarios requiring fine-grained external control.
 
 ## Goals
@@ -248,6 +252,8 @@ Development is phased; some items below already exist in code.
 ## Contributing
 
 We welcome contributions! If you have ideas, bug reports, or want to contribute code, please feel free to open issues or pull requests.
+
+Please review our [Contributing Guidelines](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) before participating. If you discover a security vulnerability, please see our [Security Policy](SECURITY.md).
 
 ## License
 

@@ -1,0 +1,72 @@
+# .goreleaser.yaml
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    format_overrides:
+      - goos: windows
+        format: zip
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+
+dockers:
+  - image_templates:
+      - "ghcr.io/aeswibon/gitopsctl:{{ .Tag }}-amd64"
+    dockerfile: Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+  - image_templates:
+      - "ghcr.io/aeswibon/gitopsctl:{{ .Tag }}-arm64"
+    dockerfile: Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+
+docker_manifests:
+  - name_template: ghcr.io/aeswibon/gitopsctl:{{ .Tag }}
+    image_templates:
+      - "ghcr.io/aeswibon/gitopsctl:{{ .Tag }}-amd64"
+      - "ghcr.io/aeswibon/gitopsctl:{{ .Tag }}-arm64"
+  - name_template: ghcr.io/aeswibon/gitopsctl:latest
+    image_templates:
+      - "ghcr.io/aeswibon/gitopsctl:{{ .Tag }}-amd64"
+      - "ghcr.io/aeswibon/gitopsctl:{{ .Tag }}-arm64"
+
+brews:
+  - repository:
+      owner: aeswibon
+      name: homebrew-gitopsctl
+      token: "{{ .Env.GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/aeswibon/gitopsctl"
+    description: "A minimalistic, self-hosted, and externally managed GitOps controller."
+    test: |
+      system "#{bin}/gitopsctl --help"

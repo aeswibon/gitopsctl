@@ -281,10 +281,10 @@ func (c *Controller) clusterHealthChecker() {
 		case <-ticker.C:
 			c.clusters.RLock()
 			clustersToCheck := c.clusters.List()
+			c.clusters.RUnlock()
 			for _, cl := range clustersToCheck {
 				c.performClusterHealthCheck(c.ctx, cl)
 			}
-			c.clusters.RUnlock()
 		case cmd, ok := <-c.clusterCommandChan:
 			if !ok {
 				c.logger.Info("Cluster command channel closed, health checker exiting.")
