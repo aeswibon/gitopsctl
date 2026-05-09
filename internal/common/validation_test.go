@@ -111,4 +111,23 @@ users: []
 	if err := ValidateKubeconfigFile(tmpDir); err == nil {
 		t.Error("Expected error for directory")
 	}
+
+	noClusters, err := os.CreateTemp("", "kubeconfig-empty-clusters")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Remove(noClusters.Name()) }()
+	emptyClustersYAML := `apiVersion: v1
+kind: Config
+clusters: []
+contexts: []
+current-context: ""
+users: []
+`
+	if err := os.WriteFile(noClusters.Name(), []byte(emptyClustersYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateKubeconfigFile(noClusters.Name()); err == nil {
+		t.Error("Expected error when kubeconfig defines no clusters")
+	}
 }

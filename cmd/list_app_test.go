@@ -7,6 +7,15 @@ import (
 	"aeswibon.com/github/gitopsctl/internal/utils"
 )
 
+func TestHandleEmptyAppsForList(t *testing.T) {
+	if err := handleEmptyAppsForList(""); err != nil {
+		t.Fatalf("handleEmptyAppsForList(\"\") error = %v", err)
+	}
+	if err := handleEmptyAppsForList("pending"); err != nil {
+		t.Fatalf("handleEmptyAppsForList(filtered) error = %v", err)
+	}
+}
+
 func TestFilterAppsForList(t *testing.T) {
 	items := []utils.Renderable{
 		&app.Application{Name: "a", Status: "active"},

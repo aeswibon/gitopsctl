@@ -95,3 +95,23 @@ func TestTempRepoDir(t *testing.T) {
 		t.Error("Expected temp dir to exist")
 	}
 }
+
+func TestSetupAuthAndCleanupRepo(t *testing.T) {
+	if got := setupAuth("https://github.com/example/repo.git"); got != nil {
+		t.Fatalf("expected nil auth for https public repos")
+	}
+
+	// Exercise SSH URL branch (may use SSH agent or fall back to nil auth).
+	_ = setupAuth("git@github.com:example/repo.git")
+
+	tmpDir, err := os.MkdirTemp("", "cleanup-repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CleanUpRepo(zap.NewNop(), tmpDir); err != nil {
+		t.Fatalf("CleanUpRepo() error = %v", err)
+	}
+	if _, err := os.Stat(tmpDir); !os.IsNotExist(err) {
+		t.Fatalf("expected cleaned directory to be removed, stat err=%v", err)
+	}
+}

@@ -19,9 +19,11 @@ func (h *Handler) Register(c echo.Context) error {
 		h.logger.Error("Failed to bind register cluster request", zap.Error(err))
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request payload")
 	}
-	if err := c.Validate(req); err != nil {
-		h.logger.Error("Failed to validate register cluster request", zap.Error(err))
-		return err
+	if c.Echo().Validator != nil {
+		if err := c.Validate(req); err != nil {
+			h.logger.Error("Failed to validate register cluster request", zap.Error(err))
+			return err
+		}
 	}
 
 	h.clusters.Lock()

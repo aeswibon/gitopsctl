@@ -127,3 +127,81 @@ func TestCheckConnectivity_NilConfig(t *testing.T) {
 		t.Fatal("expected error when config is nil")
 	}
 }
+
+func TestCheckConnectivity_ServerUnreachable(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "k8s-conn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	kcfg := filepath.Join(tmpDir, "kube.yaml")
+	kubeYAML := `apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    server: https://127.0.0.1:1
+    insecure-skip-tls-verify: true
+  name: default
+contexts:
+- context:
+    cluster: default
+    user: default
+  name: default
+current-context: default
+users:
+- name: default
+  user: {}
+`
+	if err := os.WriteFile(kcfg, []byte(kubeYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cs, err := NewClientSet(zap.NewNop(), kcfg)
+	if err != nil {
+		t.Fatalf("NewClientSet: %v", err)
+	}
+	if err := cs.CheckConnectivity(context.Background()); err == nil {
+		t.Fatal("expected connectivity error for unreachable API server")
+	}
+}
+
+func TestApplyYAMLData_UnnamedResource(t *testing.T) {
+	cs := &ClientSet{logger: zap.NewNop()}
+	yamlData := []byte(`
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: default
+data:
+  key: value
+`)
+	errs := cs.applyYAMLData(context.Background(), yamlData, "inline")
+	if len(errs) == 0 {
+		t.Fatal("expected error for unnamed resource")
+	}
+}
+
+func TestApplyManifests_HelmLoadFailure(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "apply-helm-fail")
+	defer os.RemoveAll(tmpDir)
+	// Create marker Chart file but invalid chart structure.
+	if err := os.WriteFile(filepath.Join(tmpDir, "Chart.yaml"), []byte("apiVersion: v2\nname: broken\nversion: 0.1.0\n"), 0644); err != nil {
+		t.Fatalf("failed writing chart: %v", err)
+	}
+	cs := &ClientSet{logger: zap.NewNop()}
+	_ = cs.ApplyManifests(context.Background(), tmpDir)
+}
+
+func TestApplyManifests_KustomizeBuildFailure(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "apply-kustomize-fail")
+	defer os.RemoveAll(tmpDir)
+	if err := os.WriteFile(filepath.Join(tmpDir, "kustomization.yaml"), []byte("resources:\n- missing.yaml\n"), 0644); err != nil {
+		t.Fatalf("failed writing kustomization file: %v", err)
+	}
+	cs := &ClientSet{logger: zap.NewNop()}
+	errs := cs.ApplyManifests(context.Background(), tmpDir)
+	if len(errs) == 0 {
+		t.Fatal("expected kustomize build error")
+	}
+}
