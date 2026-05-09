@@ -22,7 +22,8 @@ func TestPerformSync_GitFailureSetsError(t *testing.T) {
 	ctrl := NewController(logger, apps, clusters)
 
 	tmpDir, _ := os.MkdirTemp("", "perform-sync")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
 	appCfg := filepath.Join(tmpDir, "apps.json")
 
 	a := &app.Application{
@@ -76,7 +77,8 @@ func TestPerformSync_ManualPolicySetsOutOfSync(t *testing.T) {
 	ctrl := NewController(logger, apps, cluster.NewClusters())
 
 	repoPath := createLocalRepo(t)
-	defer os.RemoveAll(repoPath)
+	defer func() { _ = os.RemoveAll(repoPath) }()
+
 	workDir, _ := os.MkdirTemp("", "perform-sync-manual")
 	defer os.RemoveAll(workDir)
 	appCfg := filepath.Join(workDir, "apps.json")

@@ -14,7 +14,8 @@ func TestRegisterAppHelpers_LoadAndCheckAndDryRun(t *testing.T) {
 	origWd, _ := os.Getwd()
 	tmpDir, _ := os.MkdirTemp("", "register-app-flow")
 	defer os.RemoveAll(tmpDir)
-	defer os.Chdir(origWd)
+	defer func() { _ = os.Chdir(origWd) }()
+
 	_ = os.Chdir(tmpDir)
 	logger = zap.NewNop()
 

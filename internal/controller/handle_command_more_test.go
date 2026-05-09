@@ -18,7 +18,8 @@ func TestHandleAppCommand_StartMissingClusterUpdatesApp(t *testing.T) {
 	ctrl := NewController(logger, apps, clusters)
 
 	tmpDir, _ := os.MkdirTemp("", "handle-start")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
 	appCfg := filepath.Join(tmpDir, "apps.json")
 
 	a := &app.Application{

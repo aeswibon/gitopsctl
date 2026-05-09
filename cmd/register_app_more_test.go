@@ -44,7 +44,8 @@ func TestRegisterAppHelpers_VerifyClusterAndSave(t *testing.T) {
 	origWd, _ := os.Getwd()
 	tmpDir, _ := os.MkdirTemp("", "register-app")
 	defer os.RemoveAll(tmpDir)
-	defer os.Chdir(origWd)
+	defer func() { _ = os.Chdir(origWd) }()
+
 	if err := os.Chdir(tmpDir); err != nil {
 		t.Fatalf("chdir failed: %v", err)
 	}
