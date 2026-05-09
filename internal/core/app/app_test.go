@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-
 func TestLoadSaveApplications(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "app-test")
 	if err != nil {
@@ -96,7 +95,6 @@ func TestApplication_MoreRendering(t *testing.T) {
 		t.Error("YAML content mismatch")
 	}
 }
-
 
 func TestApplication_ToTable(t *testing.T) {
 	a := &Application{

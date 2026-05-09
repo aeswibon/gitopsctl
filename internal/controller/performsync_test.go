@@ -156,15 +156,15 @@ func TestPerformSync_ManifestPathMissingSetsError(t *testing.T) {
 	}
 
 	a := &app.Application{
-		Name:            "a1",
-		RepoURL:         repoPath,
-		Branch:          "master",
-		Path:            "does-not-exist",
-		ClusterName:     "c1",
-		PollingInterval: time.Minute,
+		Name:              "a1",
+		RepoURL:           repoPath,
+		Branch:            "master",
+		Path:              "does-not-exist",
+		ClusterName:       "c1",
+		PollingInterval:   time.Minute,
 		LastSyncedGitHash: "",
-		SyncPolicy:      "auto",
-		Status:          "Pending",
+		SyncPolicy:        "auto",
+		Status:            "Pending",
 	}
 	apps.Add(a)
 

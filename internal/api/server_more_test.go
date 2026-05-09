@@ -1,10 +1,10 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"context"
 
 	"aeswibon.com/github/gitopsctl/internal/controller"
 	appcore "aeswibon.com/github/gitopsctl/internal/core/app"

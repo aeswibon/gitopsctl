@@ -412,7 +412,7 @@ func (c *Controller) handleAppCommand(cmd AppCommand, appConfigFile string) {
 		c.apps.RUnlock()
 
 		appCtx, appCancel := context.WithCancel(c.ctx) // New context for the app
-		syncChan := make(chan struct{}, 1)           // New sync channel for the app
+		syncChan := make(chan struct{}, 1)             // New sync channel for the app
 
 		c.wg.Add(1)
 		c.runningApps[cmd.AppName] = &appRuntime{cancel: appCancel, syncChan: syncChan}

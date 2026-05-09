@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-
 func TestLoadSaveClusters(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "cluster-test")
 	if err != nil {

@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"aeswibon.com/github/gitopsctl/internal/controller"
-	"aeswibon.com/github/gitopsctl/internal/events"
 	appcore "aeswibon.com/github/gitopsctl/internal/core/app"
 	clustercore "aeswibon.com/github/gitopsctl/internal/core/cluster"
+	"aeswibon.com/github/gitopsctl/internal/events"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 )
