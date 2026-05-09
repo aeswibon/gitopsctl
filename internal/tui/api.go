@@ -93,11 +93,37 @@ func (c *apiClient) syncApp(name string) error {
 	return nil
 }
 
+func (c *apiClient) unregisterApp(name string) error {
+	req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/applications/%s", c.baseURL, name), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
+}
+
 func (c *apiClient) checkCluster(name string) error {
 	resp, err := c.client.Post(
 		fmt.Sprintf("%s/api/v1/clusters/%s/check", c.baseURL, name),
 		"application/json", nil,
 	)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
+}
+
+func (c *apiClient) unregisterCluster(name string) error {
+	req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/clusters/%s", c.baseURL, name), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return err
 	}

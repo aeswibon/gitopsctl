@@ -34,9 +34,9 @@ func (c clusterItem) FilterValue() string { return c.cl.Name }
 // ── Model ─────────────────────────────────────────────────────────────────────
 
 type Model struct {
-	state   viewState
-	apps    []AppResponse
-	clusters []ClusterResponse
+	state         viewState
+	apps          []AppResponse
+	clusters      []ClusterResponse
 	appCursor     int
 	clusterCursor int
 	spinner       spinner.Model
@@ -200,6 +200,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				name := m.clusters[m.clusterCursor].Name
 				m.confirmMsg = fmt.Sprintf("Health-check  %q ?  (y/n)", name)
 				m.confirmAction = func() { _ = m.client.checkCluster(name) }
+			}
+		case "u":
+			if m.state == appsView && len(m.apps) > 0 {
+				name := m.apps[m.appCursor].Name
+				m.confirmMsg = fmt.Sprintf("Unregister application  %q ?  (y/n)", name)
+				m.confirmAction = func() { _ = m.client.unregisterApp(name) }
+			} else if m.state == clustersView && len(m.clusters) > 0 {
+				name := m.clusters[m.clusterCursor].Name
+				m.confirmMsg = fmt.Sprintf("Unregister cluster  %q ?  (y/n)", name)
+				m.confirmAction = func() { _ = m.client.unregisterCluster(name) }
 			}
 		}
 
@@ -436,9 +446,9 @@ func (m Model) renderHelp() string {
 		{"r", "refresh"},
 	}
 	if m.state == appsView {
-		bindings = append(bindings, binding{"s", "sync"})
+		bindings = append(bindings, binding{"s", "sync"}, binding{"u", "unregister"})
 	} else {
-		bindings = append(bindings, binding{"c", "check"})
+		bindings = append(bindings, binding{"c", "check"}, binding{"u", "unregister"})
 	}
 	bindings = append(bindings, binding{"q", "quit"})
 
