@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
-	appcore "aeswibon.com/github/gitopsctl/internal/core/app"
-	clustercore "aeswibon.com/github/gitopsctl/internal/core/cluster"
-	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -20,19 +18,27 @@ const (
 	clustersView
 )
 
-type item struct {
-	title, desc string
-	status      string
-}
+// ── Data types ────────────────────────────────────────────────────────────────
 
-func (i item) Title() string       { return i.title }
-func (i item) Description() string { return i.desc }
-func (i item) FilterValue() string { return i.title }
+type appItem struct{ app AppResponse }
+type clusterItem struct{ cl ClusterResponse }
+
+func (a appItem) Title() string       { return a.app.Name }
+func (a appItem) Description() string { return a.app.Status }
+func (a appItem) FilterValue() string { return a.app.Name }
+
+func (c clusterItem) Title() string       { return c.cl.Name }
+func (c clusterItem) Description() string { return c.cl.Status }
+func (c clusterItem) FilterValue() string { return c.cl.Name }
+
+// ── Model ─────────────────────────────────────────────────────────────────────
 
 type Model struct {
-	state         viewState
-	appList       list.Model
-	clusterList   list.Model
+	state   viewState
+	apps    []AppResponse
+	clusters []ClusterResponse
+	appCursor     int
+	clusterCursor int
 	spinner       spinner.Model
 	width, height int
 	loading       bool
@@ -42,49 +48,34 @@ type Model struct {
 	cancel        context.CancelFunc
 	confirmMsg    string
 	confirmAction func()
+	statusMsg     string
+	statusUntil   time.Time
 }
 
 func NewModel(apiURL string) Model {
-	delegate := list.NewDefaultDelegate()
-	delegate.Styles.SelectedTitle = lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(accentColor).
-		Foreground(accentColor).
-		Padding(0, 0, 0, 1)
-
-	appL := list.New([]list.Item{}, delegate, 0, 0)
-	appL.SetShowTitle(false)
-	appL.SetShowStatusBar(false)
-	appL.KeyMap.Quit.Unbind()
-
-	clusterL := list.New([]list.Item{}, delegate, 0, 0)
-	clusterL.SetShowTitle(false)
-	clusterL.SetShowStatusBar(false)
-	clusterL.KeyMap.Quit.Unbind()
-
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(primaryColor)
+	s.Style = lipgloss.NewStyle().Foreground(accent)
 
 	ctx, cancel := context.WithCancel(context.Background())
-
 	return Model{
-		state:       appsView,
-		appList:     appL,
-		clusterList: clusterL,
-		spinner:     s,
-		loading:     true,
-		client:      newAPIClient(apiURL),
-		ctx:         ctx,
-		cancel:      cancel,
+		loading: true,
+		spinner: s,
+		client:  newAPIClient(apiURL),
+		ctx:     ctx,
+		cancel:  cancel,
 	}
 }
 
+// ── Messages ──────────────────────────────────────────────────────────────────
+
 type (
-	appsLoadedMsg     []appcore.Application
-	clustersLoadedMsg []clustercore.Cluster
+	appsLoadedMsg     []AppResponse
+	clustersLoadedMsg []ClusterResponse
 	errorMsg          error
 )
+
+// ── Init ──────────────────────────────────────────────────────────────────────
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
@@ -115,34 +106,33 @@ func (m Model) fetchClusters() tea.Cmd {
 	}
 }
 
+// ── Update ────────────────────────────────────────────────────────────────────
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
 	var cmds []tea.Cmd
+
+	// Clear transient status message
+	if !m.statusUntil.IsZero() && time.Now().After(m.statusUntil) {
+		m.statusMsg = ""
+		m.statusUntil = time.Time{}
+	}
 
 	switch msg := msg.(type) {
 	case appsLoadedMsg:
 		m.loading = false
 		m.err = nil
-		items := make([]list.Item, len(msg))
-		for i, a := range msg {
-			clName := a.ClusterName
-			if clName == "" {
-				clName = "N/A"
-			}
-			desc := fmt.Sprintf("Cluster: %s | Repo: %s", clName, a.RepoURL)
-			items[i] = item{title: a.Name, desc: desc, status: a.Status}
+		m.apps = msg
+		if m.appCursor >= len(m.apps) {
+			m.appCursor = max(0, len(m.apps)-1)
 		}
-		m.appList.SetItems(items)
 
 	case clustersLoadedMsg:
 		m.loading = false
 		m.err = nil
-		items := make([]list.Item, len(msg))
-		for i, c := range msg {
-			desc := fmt.Sprintf("Message: %s", c.Message)
-			items[i] = item{title: c.Name, desc: desc, status: c.Status}
+		m.clusters = msg
+		if m.clusterCursor >= len(m.clusters) {
+			m.clusterCursor = max(0, len(m.clusters)-1)
 		}
-		m.clusterList.SetItems(items)
 
 	case errorMsg:
 		m.loading = false
@@ -151,12 +141,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case eventReceivedMsg:
 		cmds = append(cmds, m.fetchApps(), m.fetchClusters(), m.client.listenForEvents(m.ctx))
 
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		cmds = append(cmds, cmd)
+
 	case tea.KeyMsg:
 		if m.confirmMsg != "" {
 			switch msg.String() {
 			case "y", "Y":
 				if m.confirmAction != nil {
 					m.confirmAction()
+					m.statusMsg = "✓ Action dispatched"
+					m.statusUntil = time.Now().Add(3 * time.Second)
 				}
 				m.confirmMsg = ""
 				m.confirmAction = nil
@@ -164,133 +161,304 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.confirmMsg = ""
 				m.confirmAction = nil
 			}
-			return m, nil
+			return m, tea.Batch(cmds...)
 		}
 
 		switch msg.String() {
 		case "ctrl+c", "q":
 			m.cancel()
 			return m, tea.Quit
-		case "tab":
+		case "tab", "shift+tab":
 			if m.state == appsView {
 				m.state = clustersView
 			} else {
 				m.state = appsView
 			}
+		case "up", "k":
+			if m.state == appsView && m.appCursor > 0 {
+				m.appCursor--
+			} else if m.state == clustersView && m.clusterCursor > 0 {
+				m.clusterCursor--
+			}
+		case "down", "j":
+			if m.state == appsView && m.appCursor < len(m.apps)-1 {
+				m.appCursor++
+			} else if m.state == clustersView && m.clusterCursor < len(m.clusters)-1 {
+				m.clusterCursor++
+			}
 		case "r":
 			m.loading = true
 			cmds = append(cmds, m.fetchApps(), m.fetchClusters())
 		case "s":
-			if m.state == appsView {
-				if it := m.appList.SelectedItem(); it != nil {
-					appName := it.(item).title
-					m.confirmMsg = fmt.Sprintf("Trigger sync for %s? (y/n)", appName)
-					m.confirmAction = func() { _ = m.client.syncApp(appName) }
-				}
+			if m.state == appsView && len(m.apps) > 0 {
+				name := m.apps[m.appCursor].Name
+				m.confirmMsg = fmt.Sprintf("Sync  %q ?  (y/n)", name)
+				m.confirmAction = func() { _ = m.client.syncApp(name) }
 			}
 		case "c":
-			if m.state == clustersView {
-				if it := m.clusterList.SelectedItem(); it != nil {
-					clusterName := it.(item).title
-					m.confirmMsg = fmt.Sprintf("Trigger check for %s? (y/n)", clusterName)
-					m.confirmAction = func() { _ = m.client.checkCluster(clusterName) }
-				}
+			if m.state == clustersView && len(m.clusters) > 0 {
+				name := m.clusters[m.clusterCursor].Name
+				m.confirmMsg = fmt.Sprintf("Health-check  %q ?  (y/n)", name)
+				m.confirmAction = func() { _ = m.client.checkCluster(name) }
 			}
 		}
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.appList.SetSize(msg.Width-8, msg.Height-12)
-		m.clusterList.SetSize(msg.Width-8, msg.Height-12)
-
-	case spinner.TickMsg:
-		m.spinner, cmd = m.spinner.Update(msg)
-		cmds = append(cmds, cmd)
-	}
-
-	if m.confirmMsg == "" {
-		if m.state == appsView {
-			m.appList, cmd = m.appList.Update(msg)
-			cmds = append(cmds, cmd)
-		} else {
-			m.clusterList, cmd = m.clusterList.Update(msg)
-			cmds = append(cmds, cmd)
-		}
 	}
 
 	return m, tea.Batch(cmds...)
 }
 
-func renderBadge(status string) string {
-	var style lipgloss.Style
-	switch status {
-	case "Synced", "Active":
-		style = BadgeStyle.Background(secondaryColor)
-	case "Error":
-		style = BadgeStyle.Background(errorColor)
-	case "Syncing", "Pending":
-		style = BadgeStyle.Background(warningColor)
-	default:
-		style = BadgeStyle.Background(inactiveColor)
-	}
-	return style.Render(" " + strings.ToUpper(status) + " ")
-}
+// ── View ──────────────────────────────────────────────────────────────────────
 
 func (m Model) View() string {
-	var s strings.Builder
+	if m.width == 0 {
+		return ""
+	}
 
-	// Header
-	header := TitleStyle.Render(" GitOpsCTL Dashboard ")
+	var out strings.Builder
+
+	// ── Header ──────────────────────────────────────────────────────────────
+	logo := HeaderStyle.Render("⎈ GitOpsCTL")
+	spin := ""
 	if m.loading {
-		header += " " + m.spinner.View()
+		spin = "  " + m.spinner.View()
 	}
-	s.WriteString(header + "\n\n")
+	status := ""
+	if m.statusMsg != "" {
+		status = "  " + ChipSynced.Render(m.statusMsg)
+	}
+	header := lipgloss.JoinHorizontal(lipgloss.Bottom,
+		logo, spin, status,
+		lipgloss.NewStyle().Foreground(subtle).Render(
+			lipgloss.PlaceHorizontal(m.width-lipgloss.Width(logo)-lipgloss.Width(spin)-lipgloss.Width(status)-4, lipgloss.Right,
+				VersionStyle.Render("gitopsctl · dashboard"),
+			),
+		),
+	)
+	out.WriteString(header + "\n")
 
-	// Error or Confirmation
+	// ── Tab bar ─────────────────────────────────────────────────────────────
+	appsTab := InactiveTab.Render("Applications")
+	clTab := InactiveTab.Render("Clusters")
+	if m.state == appsView {
+		appsTab = ActiveTab.Render("Applications")
+	} else {
+		clTab = ActiveTab.Render("Clusters")
+	}
+	out.WriteString(TabBar.Width(m.width - 2).Render(appsTab+clTab) + "\n\n")
+
+	// ── Error / Confirm ─────────────────────────────────────────────────────
 	if m.err != nil {
-		s.WriteString(StatusErrorStyle.Render(fmt.Sprintf("!! %v", m.err)) + "\n\n")
+		out.WriteString(ErrStyle.Render("  ✗ "+m.err.Error()) + "\n\n")
 	}
-
 	if m.confirmMsg != "" {
-		s.WriteString(lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(accentColor).Padding(0, 2).Render(m.confirmMsg) + "\n\n")
+		out.WriteString(ConfirmStyle.Render("  ? "+m.confirmMsg) + "\n\n")
 	}
 
-	// Tabs
-	var appsTab, clustersTab string
+	// ── Main columns ────────────────────────────────────────────────────────
+	listW := m.width / 2
+	detailW := m.width - listW - 4
+	listH := m.height - 9 // rows below header/tabs/help
+
+	var listContent, detailContent string
+
 	if m.state == appsView {
-		appsTab = HeaderStyle.Render(" APPLICATIONS ")
-		clustersTab = lipgloss.NewStyle().Foreground(inactiveColor).Render(" CLUSTERS ")
+		listContent = m.renderAppList(listW-4, listH)
+		detailContent = m.renderAppDetail(detailW-4)
 	} else {
-		appsTab = lipgloss.NewStyle().Foreground(inactiveColor).Render(" APPLICATIONS ")
-		clustersTab = HeaderStyle.Render(" CLUSTERS ")
+		listContent = m.renderClusterList(listW-4, listH)
+		detailContent = m.renderClusterDetail(detailW-4)
 	}
-	s.WriteString(fmt.Sprintf("%s | %s\n\n", appsTab, clustersTab))
 
-	// Content
-	var content string
-	if m.state == appsView {
-		content = m.appList.View()
-		if it := m.appList.SelectedItem(); it != nil {
-			content += "\n" + DetailPaneStyle.Render(fmt.Sprintf("%s %s\n%s", renderBadge(it.(item).status), KeyStyle.Render(it.(item).title), it.(item).desc))
-		}
-	} else {
-		content = m.clusterList.View()
-		if it := m.clusterList.SelectedItem(); it != nil {
-			content += "\n" + DetailPaneStyle.Render(fmt.Sprintf("%s %s\n%s", renderBadge(it.(item).status), KeyStyle.Render(it.(item).title), it.(item).desc))
-		}
-	}
-	s.WriteString(content)
+	leftPanel := ListPanelActive.Width(listW - 2).Height(listH).Render(listContent)
+	rightPanel := DetailPanel.Width(detailW - 2).Height(listH).Render(detailContent)
+	columns := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, "  ", rightPanel)
+	out.WriteString(columns + "\n")
 
-	s.WriteString(HelpStyle.Render("\ntab: switch view • r: refresh • s: sync • c: check • q: quit"))
+	// ── Help bar ────────────────────────────────────────────────────────────
+	out.WriteString(m.renderHelp())
 
-	return MainContentStyle.
-		Border(lipgloss.DoubleBorder()).
-		BorderForeground(primaryColor).
-		Width(m.width - 2).
-		Height(m.height - 2).
-		Render(s.String())
+	return out.String()
 }
+
+// ── List renderers ────────────────────────────────────────────────────────────
+
+func (m Model) renderAppList(w, h int) string {
+	if len(m.apps) == 0 {
+		return ItemMeta.Render("\n  No applications registered.")
+	}
+	maxVisible := max(1, h-2)
+	start := 0
+	if m.appCursor >= maxVisible {
+		start = m.appCursor - maxVisible + 1
+	}
+	var rows []string
+	for i := start; i < len(m.apps) && i < start+maxVisible; i++ {
+		a := m.apps[i]
+		cl := a.ClusterName
+		if cl == "" {
+			cl = "—"
+		}
+		name := ItemName.Render(a.Name)
+		meta := ItemMeta.Render(fmt.Sprintf("  %s · %s", cl, a.Interval))
+		chip := StatusChip(a.Status)
+		line := fmt.Sprintf("%s  %s\n%s", name, chip, meta)
+		if i == m.appCursor {
+			line = lipgloss.NewStyle().
+				Foreground(accent).
+				Border(lipgloss.NormalBorder(), false, false, false, true).
+				BorderForeground(accent).
+				PaddingLeft(1).
+				Render(line)
+		} else {
+			line = lipgloss.NewStyle().PaddingLeft(2).Render(line)
+		}
+		rows = append(rows, line)
+	}
+	return strings.Join(rows, "\n")
+}
+
+func (m Model) renderClusterList(w, h int) string {
+	if len(m.clusters) == 0 {
+		return ItemMeta.Render("\n  No clusters registered.")
+	}
+	maxVisible := max(1, h-2)
+	start := 0
+	if m.clusterCursor >= maxVisible {
+		start = m.clusterCursor - maxVisible + 1
+	}
+	var rows []string
+	for i := start; i < len(m.clusters) && i < start+maxVisible; i++ {
+		c := m.clusters[i]
+		name := ItemName.Render(c.Name)
+		chip := StatusChip(c.Status)
+		reg := ItemMeta.Render("  Registered " + c.RegisteredAt.Format("02 Jan 15:04"))
+		line := fmt.Sprintf("%s  %s\n%s", name, chip, reg)
+		if i == m.clusterCursor {
+			line = lipgloss.NewStyle().
+				Foreground(accent).
+				Border(lipgloss.NormalBorder(), false, false, false, true).
+				BorderForeground(accent).
+				PaddingLeft(1).
+				Render(line)
+		} else {
+			line = lipgloss.NewStyle().PaddingLeft(2).Render(line)
+		}
+		rows = append(rows, line)
+	}
+	return strings.Join(rows, "\n")
+}
+
+// ── Detail renderers ──────────────────────────────────────────────────────────
+
+func kv(label, value string) string {
+	return DetailLabel.Render(label) + DetailValue.Render(value)
+}
+
+func (m Model) renderAppDetail(w int) string {
+	if len(m.apps) == 0 {
+		return lipgloss.NewStyle().Foreground(subtle).Render("Select an application")
+	}
+	a := m.apps[m.appCursor]
+
+	hash := a.LastSyncedGitHash
+	if len(hash) > 7 {
+		hash = hash[:7]
+	}
+	if hash == "" {
+		hash = "—"
+	}
+	cl := a.ClusterName
+	if cl == "" {
+		cl = "—"
+	}
+	failures := fmt.Sprintf("%d", a.ConsecutiveFailures)
+	msg := a.Message
+	if msg == "" {
+		msg = "—"
+	}
+	if len(msg) > w-20 && w > 20 {
+		msg = msg[:w-20] + "…"
+	}
+
+	var b strings.Builder
+	b.WriteString(DetailTitle.Render(a.Name) + "\n")
+	b.WriteString(StatusChip(a.Status) + "\n\n")
+	b.WriteString(kv("Repo", a.RepoURL) + "\n")
+	b.WriteString(kv("Branch", a.Branch) + "\n")
+	b.WriteString(kv("Path", a.Path) + "\n")
+	b.WriteString(kv("Cluster", cl) + "\n")
+	b.WriteString(kv("Interval", a.Interval) + "\n")
+	b.WriteString(kv("Last Synced", hash) + "\n")
+	b.WriteString(kv("Failures", failures) + "\n")
+	b.WriteString("\n" + DetailLabel.Render("Message") + "\n")
+	b.WriteString(DetailValue.Italic(true).Render(msg))
+	return b.String()
+}
+
+func (m Model) renderClusterDetail(w int) string {
+	if len(m.clusters) == 0 {
+		return lipgloss.NewStyle().Foreground(subtle).Render("Select a cluster")
+	}
+	c := m.clusters[m.clusterCursor]
+
+	reg := c.RegisteredAt.Format("02 Jan 2006 15:04")
+	checked := "—"
+	if !c.LastCheckedAt.IsZero() {
+		checked = c.LastCheckedAt.Format("02 Jan 2006 15:04")
+	}
+	msg := c.Message
+	if msg == "" {
+		msg = "—"
+	}
+
+	var b strings.Builder
+	b.WriteString(DetailTitle.Render(c.Name) + "\n")
+	b.WriteString(StatusChip(c.Status) + "\n\n")
+	b.WriteString(kv("Kubeconfig", c.KubeconfigPath) + "\n")
+	b.WriteString(kv("Registered", reg) + "\n")
+	b.WriteString(kv("Last Checked", checked) + "\n")
+	b.WriteString("\n" + DetailLabel.Render("Message") + "\n")
+	b.WriteString(DetailValue.Italic(true).Render(msg))
+	return b.String()
+}
+
+// ── Help ──────────────────────────────────────────────────────────────────────
+
+func (m Model) renderHelp() string {
+	type binding struct{ key, desc string }
+	bindings := []binding{
+		{"↑/↓", "navigate"},
+		{"tab", "switch view"},
+		{"r", "refresh"},
+	}
+	if m.state == appsView {
+		bindings = append(bindings, binding{"s", "sync"})
+	} else {
+		bindings = append(bindings, binding{"c", "check"})
+	}
+	bindings = append(bindings, binding{"q", "quit"})
+
+	var parts []string
+	for _, b := range bindings {
+		parts = append(parts, HelpKey.Render(b.key)+" "+HelpDesc.Render(b.desc))
+	}
+	return HelpSep.Render("  ") + strings.Join(parts, HelpSep.Render("  ·  "))
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// ── Run ───────────────────────────────────────────────────────────────────────
 
 func Run(apiURL string) error {
 	p := tea.NewProgram(NewModel(apiURL), tea.WithAltScreen())

@@ -3,68 +3,123 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	// Colors
-	primaryColor   = lipgloss.Color("#7D56F4")
-	secondaryColor = lipgloss.Color("#04B575")
-	errorColor     = lipgloss.Color("#FF4C4C")
-	warningColor   = lipgloss.Color("#F4C430")
-	inactiveColor  = lipgloss.Color("#626262")
-	accentColor    = lipgloss.Color("#EE6FF8")
+	// ── Palette ──────────────────────────────────────────────────
+	bg          = lipgloss.Color("#0D0D0D")
+	fg          = lipgloss.Color("#D4D4D4")
+	subtle      = lipgloss.Color("#555555")
+	accent      = lipgloss.Color("#7C6AF7") // violet
+	accentDim   = lipgloss.Color("#3D3562")
+	green       = lipgloss.Color("#4EC994")
+	red         = lipgloss.Color("#E06C75")
+	orange      = lipgloss.Color("#E5A24A")
+	blue        = lipgloss.Color("#61AFEF")
+	white       = lipgloss.Color("#EEEEEE")
 
-	// Styles
-	TitleStyle = lipgloss.NewStyle().
+	// ── Base ─────────────────────────────────────────────────────
+	Base = lipgloss.NewStyle().
+		Background(bg).
+		Foreground(fg)
+
+	// ── Header bar ───────────────────────────────────────────────
+	HeaderStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FAFAFA")).
-			Background(primaryColor).
-			Padding(0, 1).
+			Foreground(white).
+			Padding(0, 1)
+
+	VersionStyle = lipgloss.NewStyle().
+			Foreground(subtle)
+
+	// ── Tabs ─────────────────────────────────────────────────────
+	TabBar = lipgloss.NewStyle().
+		PaddingLeft(1).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(subtle).
+		BorderBottom(true)
+
+	ActiveTab = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(accent).
+			Padding(0, 2)
+
+	InactiveTab = lipgloss.NewStyle().
+			Foreground(subtle).
+			Padding(0, 2)
+
+	// ── List panel ───────────────────────────────────────────────
+	ListPanel = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(subtle).
+			Padding(0, 1)
+
+	ListPanelActive = ListPanel.Copy().
+			BorderForeground(accent)
+
+	// ── List items ───────────────────────────────────────────────
+	ItemName = lipgloss.NewStyle().
+			Foreground(white).
+			Bold(true)
+
+	ItemMeta = lipgloss.NewStyle().
+			Foreground(subtle)
+
+	SelectedItemName = lipgloss.NewStyle().
+				Foreground(accent).
+				Bold(true)
+
+	SelectedItemMeta = lipgloss.NewStyle().
+				Foreground(accentDim)
+
+	// ── Detail panel ─────────────────────────────────────────────
+	DetailPanel = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(subtle).
+			Padding(1, 2)
+
+	DetailTitle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(white).
 			MarginBottom(1)
 
-	SidebarStyle = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder(), false, true, false, false).
-			BorderForeground(inactiveColor).
-			Padding(0, 2).
-			MarginRight(2)
+	DetailLabel = lipgloss.NewStyle().
+			Foreground(subtle).
+			Width(18)
 
-	MainContentStyle = lipgloss.NewStyle().
-				Padding(0, 1)
+	DetailValue = lipgloss.NewStyle().
+			Foreground(fg)
 
-	DetailPaneStyle = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(primaryColor).
-			Padding(1).
-			MarginTop(1)
+	// ── Status chips ─────────────────────────────────────────────
+	ChipSynced   = lipgloss.NewStyle().Bold(true).Foreground(green)
+	ChipError    = lipgloss.NewStyle().Bold(true).Foreground(red)
+	ChipPending  = lipgloss.NewStyle().Bold(true).Foreground(orange)
+	ChipDefault  = lipgloss.NewStyle().Bold(true).Foreground(blue)
 
-	StatusSyncedStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(secondaryColor)
+	// ── Help bar ─────────────────────────────────────────────────
+	HelpKey = lipgloss.NewStyle().Foreground(accent)
+	HelpSep = lipgloss.NewStyle().Foreground(subtle)
+	HelpDesc = lipgloss.NewStyle().Foreground(subtle)
 
-	StatusErrorStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(errorColor)
-
-	StatusSyncingStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(warningColor)
-
-	StatusPendingStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(inactiveColor)
-
-	BadgeStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#FAFAFA")).
-			Padding(0, 1).
-			MarginRight(1)
-
-	HeaderStyle = lipgloss.NewStyle().
-			Foreground(accentColor).
+	// ── Confirm prompt ───────────────────────────────────────────
+	ConfirmStyle = lipgloss.NewStyle().
+			Foreground(orange).
 			Bold(true)
 
-	KeyStyle = lipgloss.NewStyle().
-			Foreground(primaryColor).
-			Bold(true)
-
-	HelpStyle = lipgloss.NewStyle().
-			Foreground(inactiveColor).
-			MarginTop(1)
+	// ── Error ─────────────────────────────────────────────────────
+	ErrStyle = lipgloss.NewStyle().Foreground(red)
 )
+
+// StatusChip returns a styled status indicator.
+func StatusChip(status string) string {
+	switch status {
+	case "Synced", "Active":
+		return ChipSynced.Render("● " + status)
+	case "Error", "Unreachable":
+		return ChipError.Render("● " + status)
+	case "Pending", "Syncing", "OutOfSync":
+		return ChipPending.Render("● " + status)
+	default:
+		if status == "" {
+			return ChipDefault.Render("● —")
+		}
+		return ChipDefault.Render("● " + status)
+	}
+}
