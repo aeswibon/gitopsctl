@@ -7,28 +7,21 @@ run:
   tests: true
 
 linters:
-  disable-all: true
+  default: none
   enable:
-    # Default linters (enabled explicitly for clarity)
     - errcheck
     - govet
     - ineffassign
     - staticcheck
     - unused
-    # Additional quality linters
     - misspell
     - bodyclose
+
 
 formatters:
   enable:
     - gofmt
 
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-    check-blank: true
-
 issues:
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
