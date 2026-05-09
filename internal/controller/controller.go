@@ -481,7 +481,15 @@ func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *a
 	}
 
 	if k8sClient == nil {
-		k8sClient, _ = k8s.NewClientSet(logger, targetCluster.KubeconfigPath)
+		var err error
+		k8sClient, err = k8s.NewClientSet(logger, targetCluster.KubeconfigPath)
+		if err != nil || k8sClient == nil {
+			app.Status = "Error"
+			app.Message = fmt.Sprintf("Failed to create k8s client for cluster '%s': %v", app.ClusterName, err)
+			app.ConsecutiveFailures++
+			c.saveAppStatus(app, appConfigFile, true)
+			return
+		}
 	}
 
 	c.emit(ctx, events.TypeAppSyncStarted, map[string]any{"app": app.Name, "trigger": trigger})
