@@ -4,16 +4,16 @@ import "github.com/charmbracelet/lipgloss"
 
 var (
 	// ── Palette ──────────────────────────────────────────────────
-	bg          = lipgloss.Color("#0D0D0D")
-	fg          = lipgloss.Color("#D4D4D4")
-	subtle      = lipgloss.Color("#555555")
-	accent      = lipgloss.Color("#7C6AF7") // violet
-	accentDim   = lipgloss.Color("#3D3562")
-	green       = lipgloss.Color("#4EC994")
-	red         = lipgloss.Color("#E06C75")
-	orange      = lipgloss.Color("#E5A24A")
-	blue        = lipgloss.Color("#61AFEF")
-	white       = lipgloss.Color("#EEEEEE")
+	bg        = lipgloss.Color("#0D0D0D")
+	fg        = lipgloss.Color("#D4D4D4")
+	subtle    = lipgloss.Color("#555555")
+	accent    = lipgloss.Color("#7C6AF7") // violet
+	accentDim = lipgloss.Color("#3D3562")
+	green     = lipgloss.Color("#4EC994")
+	red       = lipgloss.Color("#E06C75")
+	orange    = lipgloss.Color("#E5A24A")
+	blue      = lipgloss.Color("#61AFEF")
+	white     = lipgloss.Color("#EEEEEE")
 
 	// ── Base ─────────────────────────────────────────────────────
 	Base = lipgloss.NewStyle().
@@ -88,14 +88,14 @@ var (
 			Foreground(fg)
 
 	// ── Status chips ─────────────────────────────────────────────
-	ChipSynced   = lipgloss.NewStyle().Bold(true).Foreground(green)
-	ChipError    = lipgloss.NewStyle().Bold(true).Foreground(red)
-	ChipPending  = lipgloss.NewStyle().Bold(true).Foreground(orange)
-	ChipDefault  = lipgloss.NewStyle().Bold(true).Foreground(blue)
+	ChipSynced  = lipgloss.NewStyle().Bold(true).Foreground(green)
+	ChipError   = lipgloss.NewStyle().Bold(true).Foreground(red)
+	ChipPending = lipgloss.NewStyle().Bold(true).Foreground(orange)
+	ChipDefault = lipgloss.NewStyle().Bold(true).Foreground(blue)
 
 	// ── Help bar ─────────────────────────────────────────────────
-	HelpKey = lipgloss.NewStyle().Foreground(accent)
-	HelpSep = lipgloss.NewStyle().Foreground(subtle)
+	HelpKey  = lipgloss.NewStyle().Foreground(accent)
+	HelpSep  = lipgloss.NewStyle().Foreground(subtle)
 	HelpDesc = lipgloss.NewStyle().Foreground(subtle)
 
 	// ── Confirm prompt ───────────────────────────────────────────

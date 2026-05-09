@@ -17,7 +17,6 @@ var dashboardCmd = &cobra.Command{
 			log.Fatalf("Error running dashboard: %v", err)
 		}
 	},
-
 }
 
 func init() {

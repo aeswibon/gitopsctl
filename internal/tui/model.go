@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -258,7 +258,7 @@ func (m Model) View() string {
 	} else {
 		clTab = ActiveTab.Render("Clusters")
 	}
-	out.WriteString(TabBar.Width(m.width - 2).Render(appsTab+clTab) + "\n\n")
+	out.WriteString(TabBar.Width(m.width-2).Render(appsTab+clTab) + "\n\n")
 
 	// ── Error / Confirm ─────────────────────────────────────────────────────
 	if m.err != nil {
@@ -277,10 +277,10 @@ func (m Model) View() string {
 
 	if m.state == appsView {
 		listContent = m.renderAppList(listW-4, listH)
-		detailContent = m.renderAppDetail(detailW-4)
+		detailContent = m.renderAppDetail(detailW - 4)
 	} else {
 		listContent = m.renderClusterList(listW-4, listH)
-		detailContent = m.renderClusterDetail(detailW-4)
+		detailContent = m.renderClusterDetail(detailW - 4)
 	}
 
 	leftPanel := ListPanelActive.Width(listW - 2).Height(listH).Render(listContent)
