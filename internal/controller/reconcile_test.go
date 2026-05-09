@@ -34,8 +34,12 @@ func TestReconcileApp_MissingClusterSetsError(t *testing.T) {
 	}
 	apps.Add(a)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// Use a short-lived context as a safety net — reconcileApp should
+	// return immediately on a terminal error, but we don't want to hang
+	// the test suite if it doesn't.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
 	ctrl.wg.Add(1)
 	ctrl.reconcileApp(ctx, a, appCfg, cancel, make(chan struct{}, 1))
 
@@ -67,8 +71,10 @@ func TestReconcileApp_InvalidKubeconfigSetsError(t *testing.T) {
 	apps.Add(a)
 	clusters.Add(&cluster.Cluster{Name: "c1", KubeconfigPath: "/no/such/kubeconfig"})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// Use a short-lived context as a safety net.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
 	ctrl.wg.Add(1)
 	ctrl.reconcileApp(ctx, a, appCfg, cancel, make(chan struct{}, 1))
 

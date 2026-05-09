@@ -445,9 +445,15 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 
 	c.performSync(appCtx, logger, app, repoDir, k8sClient, appConfigFile, "initial")
 
+	// Terminal error on initial sync (e.g. cluster missing) — stop looping.
+	if app.Status == "Error" {
+		return
+	}
+
 	for {
 		select {
 		case <-ticker.C:
+
 			c.performSync(appCtx, logger, app, repoDir, k8sClient, appConfigFile, "poll")
 		case <-syncChan:
 			c.performSync(appCtx, logger, app, repoDir, k8sClient, appConfigFile, "manual")
