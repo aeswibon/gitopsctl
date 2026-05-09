@@ -20,7 +20,6 @@ const (
 
 // ── Model ─────────────────────────────────────────────────────────────────────
 
-
 type Model struct {
 	state         viewState
 	apps          []AppResponse

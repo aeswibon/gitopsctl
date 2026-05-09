@@ -52,8 +52,7 @@ var (
 			Padding(0, 1)
 
 	ListPanelActive = ListPanel.
-		BorderForeground(accent)
-
+			BorderForeground(accent)
 
 	// ── List items ───────────────────────────────────────────────
 	ItemName = lipgloss.NewStyle().
