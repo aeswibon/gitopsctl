@@ -425,7 +425,7 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 		c.saveAppStatus(app, appConfigFile, true)
 		return
 	}
-	defer git.CleanUpRepo(logger, repoDir)
+	defer func() { _ = git.CleanUpRepo(logger, repoDir) }()
 
 	c.clusters.RLock()
 	targetCluster, clusterExists := c.clusters.Get(app.ClusterName)

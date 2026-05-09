@@ -18,20 +18,8 @@ const (
 	clustersView
 )
 
-// ── Data types ────────────────────────────────────────────────────────────────
-
-type appItem struct{ app AppResponse }
-type clusterItem struct{ cl ClusterResponse }
-
-func (a appItem) Title() string       { return a.app.Name }
-func (a appItem) Description() string { return a.app.Status }
-func (a appItem) FilterValue() string { return a.app.Name }
-
-func (c clusterItem) Title() string       { return c.cl.Name }
-func (c clusterItem) Description() string { return c.cl.Status }
-func (c clusterItem) FilterValue() string { return c.cl.Name }
-
 // ── Model ─────────────────────────────────────────────────────────────────────
+
 
 type Model struct {
 	state         viewState
