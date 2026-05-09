@@ -27,6 +27,7 @@ func createDummyRepo(t *testing.T) string {
 	runGit("init")
 	runGit("config", "user.email", "test@example.com")
 	runGit("config", "user.name", "test")
+	runGit("config", "commit.gpgsign", "false")
 
 	testFile := filepath.Join(dir, "README.md")
 	if err := os.WriteFile(testFile, []byte("# Test Repo"), 0644); err != nil {
