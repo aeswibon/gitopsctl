@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-
 	"time"
 
 	"aeswibon.com/github/gitopsctl/internal/core/app"
@@ -28,12 +27,12 @@ type ClusterCommand struct {
 
 const (
 	ClusterCommandCheck    ClusterCommandType = "CHECK"
-	MaxConsecutiveFailures                    = 5
-	BaseBackoffDuration                       = 5 * time.Second
-	GitOperationTimeout                       = 60 * time.Second
-	K8sApplyTimeout                           = 120 * time.Second
-	K8sConnectTimeout                         = 10 * time.Second
-	ConfigWatchInterval                       = 5 * time.Second
+	MaxConsecutiveFailures                   = 5
+	BaseBackoffDuration                      = 5 * time.Second
+	GitOperationTimeout                      = 60 * time.Second
+	K8sApplyTimeout                          = 120 * time.Second
+	K8sConnectTimeout                        = 10 * time.Second
+	ConfigWatchInterval                      = 5 * time.Second
 )
 
 type AppCommandType string
@@ -485,11 +484,19 @@ func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *a
 	if err != nil {
 		app.Status = "Error"
 		app.Message = fmt.Sprintf("Git error: %v", err)
+		app.ConsecutiveFailures++
 		c.saveAppStatus(app, appConfigFile, true)
 		return
 	}
 
 	if currentHash == app.LastSyncedGitHash && trigger == "poll" {
+		return
+	}
+
+	if app.SyncPolicy == "manual" && currentHash != app.ApprovedGitHash {
+		app.Status = "OutOfSync"
+		app.Message = fmt.Sprintf("Manual sync required. Latest: %s, Approved: %s", currentHash, app.ApprovedGitHash)
+		c.saveAppStatus(app, appConfigFile, true)
 		return
 	}
 
@@ -499,10 +506,12 @@ func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *a
 		errMsg := fmt.Sprintf("Apply error: %v", applyErrors[0])
 		app.Status = "Error"
 		app.Message = errMsg
+		app.ConsecutiveFailures++
 	} else {
 		app.LastSyncedGitHash = currentHash
 		app.Status = "Synced"
 		app.Message = fmt.Sprintf("Synced to %s", currentHash)
+		app.ConsecutiveFailures = 0
 	}
 
 	c.notify(app)
@@ -536,6 +545,7 @@ func (c *Controller) saveAppStatus(appToSave *app.Application, appConfigFile str
 	originalApp.Status = appToSave.Status
 	originalApp.Message = appToSave.Message
 	originalApp.LastSyncedGitHash = appToSave.LastSyncedGitHash
+	originalApp.ConsecutiveFailures = appToSave.ConsecutiveFailures
 
 	_ = app.SaveApplications(c.apps, appConfigFile)
 }

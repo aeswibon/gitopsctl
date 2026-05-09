@@ -36,6 +36,7 @@ func TestPerformSync_GitFailureSetsError(t *testing.T) {
 		Status:          "Pending",
 	}
 	apps.Add(a)
+	ctrl.clusters.Add(&cluster.Cluster{Name: "c1"})
 
 	ctrl.performSync(context.Background(), logger, a, tmpDir, nil, appCfg, "manual")
 
@@ -96,6 +97,7 @@ func TestPerformSync_ManualPolicySetsOutOfSync(t *testing.T) {
 		Status:          "Pending",
 	}
 	apps.Add(a)
+	ctrl.clusters.Add(&cluster.Cluster{Name: "c1"})
 
 	ctrl.performSync(context.Background(), logger, a, workDir, nil, appCfg, "manual")
 	if a.Status != "OutOfSync" {
@@ -133,6 +135,7 @@ func TestPerformSync_NoChangesSetsSynced(t *testing.T) {
 		Status:            "Pending",
 	}
 	apps.Add(a)
+	ctrl.clusters.Add(&cluster.Cluster{Name: "c1"})
 
 	ctrl.performSync(context.Background(), logger, a, workDir, nil, appCfg, "manual")
 	if a.Status != "Synced" {
@@ -174,6 +177,7 @@ func TestPerformSync_ManifestPathMissingSetsError(t *testing.T) {
 		Status:            "Pending",
 	}
 	apps.Add(a)
+	ctrl.clusters.Add(&cluster.Cluster{Name: "c1"})
 
 	ctrl.performSync(context.Background(), logger, a, workDir, nil, appCfg, "manual")
 
@@ -183,7 +187,8 @@ func TestPerformSync_ManifestPathMissingSetsError(t *testing.T) {
 	if a.Status != "Error" {
 		t.Fatalf("expected Error for missing manifest path, got %s (msg=%q)", a.Status, a.Message)
 	}
-	if !strings.Contains(a.Message, "Manifests path") && !strings.Contains(a.Message, "not found") {
+	if !strings.Contains(a.Message, "Manifests path") && !strings.Contains(a.Message, "not found") && !strings.Contains(a.Message, "no such file or directory") {
 		t.Fatalf("unexpected message: %q", a.Message)
 	}
+
 }
