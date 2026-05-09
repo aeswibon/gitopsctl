@@ -104,4 +104,3 @@ Shipping in-tree:
 Authoritative field list and semantics: [integrations.md](./integrations.md). Policy and compatibility guarantees: [ADR 0001](./adr/0001-events-delivery-and-compatibility.md).
 
 With this ADR accepted and SSE shipped, the current Phase 2 definition is complete.
-

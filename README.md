@@ -78,6 +78,7 @@ This phase focuses on the core reconciliation loop and operational APIs:
 
 GitOpsCTL has been hardened for production-grade workflows:
 
+- **Strict Testing Standards**: 80% unit test coverage enforced in CI and local pre-push hooks.
 - **Native Helm & Kustomize Support**: Renders Helm charts and Kustomizations in-memory without needing external binaries.
 - **Mozilla SOPS Integration**: Automatically decrypts secrets stored in Git using AWS KMS, GCP KMS, PGP, etc.
 - **Manual Approval Workflow**: Optional `manual` sync policy to pause deployments until a human approves the commit hash.
@@ -272,23 +273,22 @@ Development is phased; some items below already exist in code.
 - Deeper extensibility: Helm/OCI and templating engines where they fit the architecture.
 - Notification and integration patterns built on Phase 2 event hooks—not a bundled UI unless the community explicitly chooses otherwise later.
 
-## Contributing
-
-We welcome contributions! If you have ideas, bug reports, or want to contribute code, please feel free to open issues or pull requests.
-
 ## 🤝 Contributing
 
 We welcome contributions! To ensure a high bar for code quality, please follow these steps:
 
-1. **Local Pre-commit Hooks**: We use `pre-commit` to run linting and tests locally.
-   ```bash
-   # Install pre-commit
-   pip install pre-commit
-   # Install the hooks
-   pre-commit install
-   ```
-2. **Checks**: Ensure all tests pass (`go test ./...`) and the linter is happy (`golangci-lint run`).
+1. **Local Pre-commit/Pre-push Hooks**: We use `pre-commit` to run linting and tests. Coverage checks are enforced on push.
+    ```bash
+    # Install pre-commit
+    pip install pre-commit
+    # Install the hooks (including pre-push)
+    pre-commit install --hook-type pre-commit --hook-type pre-push
+    ```
+2. **Quality Standards**:
+   - All code must maintain a minimum of **80% unit test coverage**.
+   - Ensure all tests pass (`go test ./...`) and the linter is happy (`golangci-lint run`).
 3. **PR Template**: Follow the provided Pull Request template when submitting changes.
+
 
 Please review our [Contributing Guidelines](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md). If you discover a security vulnerability, please see our [Security Policy](SECURITY.md).
 

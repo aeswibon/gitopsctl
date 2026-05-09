@@ -18,7 +18,7 @@ var listAppCmd = &cobra.Command{
 	GroupID: "appGroup",
 	Short:   "List all registered GitOps applications",
 	Long: `Displays information about all registered GitOps applications registered with gitopsctl.
-	
+
 This command shows application names, repository URLs, branches, paths, clusters, and sync intervals.
 You can filter, sort, and format the output according to your needs.`,
 	Example: `

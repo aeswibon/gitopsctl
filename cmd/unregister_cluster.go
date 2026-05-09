@@ -22,7 +22,7 @@ var unregisterClusterCmd = &cobra.Command{
 	Long: `Removes a registered Kubernetes cluster from gitopsctl's management.
 
 This command removes the cluster configuration from the controller, but does not
-affect the actual Kubernetes cluster. Any applications associated with this 
+affect the actual Kubernetes cluster. Any applications associated with this
 cluster will become dysfunctional until they are updated to reference a valid cluster.
 
 Use the --force flag to skip confirmation prompts.`,
