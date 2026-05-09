@@ -185,13 +185,15 @@ func TestReconcileApp_ClusterMissing(t *testing.T) {
 	syncChan := make(chan struct{}, 1)
 
 	a := &app.Application{
-		Name:        "orphan",
-		ClusterName: "missing-cluster",
-		RepoURL:     "https://example.com/repo.git",
-		Branch:      "main",
-		Path:        "manifests",
-		Status:      "Pending",
+		Name:            "orphan",
+		ClusterName:     "missing-cluster",
+		RepoURL:         "https://example.com/repo.git",
+		Branch:          "main",
+		Path:            "manifests",
+		Status:          "Pending",
+		PollingInterval: time.Minute,
 	}
+
 	ctrl.wg.Add(1)
 	ctrl.reconcileApp(appCtx, a, appCfg, cancel, syncChan)
 
