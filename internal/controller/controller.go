@@ -27,12 +27,12 @@ type ClusterCommand struct {
 
 const (
 	ClusterCommandCheck    ClusterCommandType = "CHECK"
-	MaxConsecutiveFailures                   = 5
-	BaseBackoffDuration                      = 5 * time.Second
-	GitOperationTimeout                      = 60 * time.Second
-	K8sApplyTimeout                          = 120 * time.Second
-	K8sConnectTimeout                        = 10 * time.Second
-	ConfigWatchInterval                      = 5 * time.Second
+	MaxConsecutiveFailures                    = 5
+	BaseBackoffDuration                       = 5 * time.Second
+	GitOperationTimeout                       = 60 * time.Second
+	K8sApplyTimeout                           = 120 * time.Second
+	K8sConnectTimeout                         = 10 * time.Second
+	ConfigWatchInterval                       = 5 * time.Second
 )
 
 type AppCommandType string

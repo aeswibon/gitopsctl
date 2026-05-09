@@ -214,7 +214,6 @@ func TestReconcileApp_ClusterMissing(t *testing.T) {
 	}
 }
 
-
 type recordingEmitter struct {
 	last map[string]any
 }
