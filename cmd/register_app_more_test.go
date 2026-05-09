@@ -43,7 +43,8 @@ func TestRegisterAppHelpers_CreateAndHandleExisting(t *testing.T) {
 func TestRegisterAppHelpers_VerifyClusterAndSave(t *testing.T) {
 	origWd, _ := os.Getwd()
 	tmpDir, _ := os.MkdirTemp("", "register-app")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
 	defer func() { _ = os.Chdir(origWd) }()
 
 	if err := os.Chdir(tmpDir); err != nil {

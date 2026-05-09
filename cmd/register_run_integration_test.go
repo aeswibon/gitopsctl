@@ -12,7 +12,8 @@ import (
 func TestRunRegisterCommand_DryRunWithClusterOnDisk(t *testing.T) {
 	origWd, _ := os.Getwd()
 	tmpDir, _ := os.MkdirTemp("", "register-run-dry")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
 	defer func() { _ = os.Chdir(origWd) }()
 
 	if err := os.Chdir(tmpDir); err != nil {
@@ -49,7 +50,8 @@ func TestRunRegisterCommand_DryRunWithClusterOnDisk(t *testing.T) {
 func TestRunRegisterCommand_ForceOverwritePath(t *testing.T) {
 	origWd, _ := os.Getwd()
 	tmpDir, _ := os.MkdirTemp("", "register-run-force")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
 	defer func() { _ = os.Chdir(origWd) }()
 
 	if err := os.Chdir(tmpDir); err != nil {
@@ -93,7 +95,8 @@ func TestRunRegisterCommand_ForceOverwritePath(t *testing.T) {
 func TestLoadAppsForList_ReturnsRenderable(t *testing.T) {
 	origWd, _ := os.Getwd()
 	tmpDir, _ := os.MkdirTemp("", "list-apps-load")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
 	defer func() { _ = os.Chdir(origWd) }()
 
 	if err := os.Chdir(tmpDir); err != nil {
@@ -121,7 +124,8 @@ func TestLoadAppsForList_ReturnsRenderable(t *testing.T) {
 func TestLoadClustersForList_ReturnsRenderable(t *testing.T) {
 	origWd, _ := os.Getwd()
 	tmpDir, _ := os.MkdirTemp("", "list-clusters-load")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
 	defer func() { _ = os.Chdir(origWd) }()
 
 	if err := os.Chdir(tmpDir); err != nil {
@@ -152,7 +156,8 @@ func TestUnregisterCluster_WithConfirmationYes(t *testing.T) {
 
 	origWd, _ := os.Getwd()
 	tmpDir, _ := os.MkdirTemp("", "unreg-cluster-confirm")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
 	defer func() { _ = os.Chdir(origWd) }()
 
 	if err := os.Chdir(tmpDir); err != nil {

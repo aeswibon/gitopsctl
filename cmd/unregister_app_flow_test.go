@@ -11,8 +11,10 @@ import (
 func TestUnregisterHelpers_LoadFindDryRunAndPerform(t *testing.T) {
 	origWd, _ := os.Getwd()
 	tmpDir, _ := os.MkdirTemp("", "unregister-app")
-	defer os.RemoveAll(tmpDir)
-	defer os.Chdir(origWd)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	defer func() { _ = os.Chdir(origWd) }()
+
 	_ = os.Chdir(tmpDir)
 	logger = zap.NewNop()
 
@@ -37,8 +39,10 @@ func TestUnregisterHelpers_LoadFindDryRunAndPerform(t *testing.T) {
 func TestRunUnregisterCommand_DryRunMissingApp(t *testing.T) {
 	origWd, _ := os.Getwd()
 	tmpDir, _ := os.MkdirTemp("", "unregister-app-run")
-	defer os.RemoveAll(tmpDir)
-	defer os.Chdir(origWd)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	defer func() { _ = os.Chdir(origWd) }()
+
 	_ = os.Chdir(tmpDir)
 	logger = zap.NewNop()
 
@@ -53,8 +57,10 @@ func TestRunUnregisterCommand_DryRunMissingApp(t *testing.T) {
 func TestRunUnregisterCommand_ForceRemovesApp(t *testing.T) {
 	origWd, _ := os.Getwd()
 	tmpDir, _ := os.MkdirTemp("", "unregister-app-force")
-	defer os.RemoveAll(tmpDir)
-	defer os.Chdir(origWd)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	defer func() { _ = os.Chdir(origWd) }()
+
 	_ = os.Chdir(tmpDir)
 	logger = zap.NewNop()
 

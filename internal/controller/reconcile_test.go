@@ -19,7 +19,8 @@ func TestReconcileApp_MissingClusterSetsError(t *testing.T) {
 	ctrl := NewController(logger, apps, clusters)
 
 	tmpDir, _ := os.MkdirTemp("", "reconcile-missing-cluster")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
 	appCfg := filepath.Join(tmpDir, "apps.json")
 
 	a := &app.Application{
@@ -50,7 +51,8 @@ func TestReconcileApp_InvalidKubeconfigSetsError(t *testing.T) {
 	ctrl := NewController(logger, apps, clusters)
 
 	tmpDir, _ := os.MkdirTemp("", "reconcile-invalid-kube")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
 	appCfg := filepath.Join(tmpDir, "apps.json")
 
 	a := &app.Application{

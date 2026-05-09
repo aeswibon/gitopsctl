@@ -23,7 +23,8 @@ func TestRootLoggerInitialization(t *testing.T) {
 func TestRunStatusAppsCommand_EmptyState(t *testing.T) {
 	origWd, _ := os.Getwd()
 	tmpDir, _ := os.MkdirTemp("", "status-apps")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
 	defer func() { _ = os.Chdir(origWd) }()
 
 	_ = os.Chdir(tmpDir)
@@ -38,7 +39,8 @@ func TestRunStatusAppsCommand_EmptyState(t *testing.T) {
 func TestRunRegisterClusterCommand_DryRun(t *testing.T) {
 	origWd, _ := os.Getwd()
 	tmpDir, _ := os.MkdirTemp("", "register-cluster-run")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
 	defer func() { _ = os.Chdir(origWd) }()
 
 	_ = os.Chdir(tmpDir)
@@ -75,7 +77,8 @@ users: []
 func TestRunUnregisterCommand_DryRunExistingApp(t *testing.T) {
 	origWd, _ := os.Getwd()
 	tmpDir, _ := os.MkdirTemp("", "unregister-run")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
 	defer func() { _ = os.Chdir(origWd) }()
 
 	_ = os.Chdir(tmpDir)

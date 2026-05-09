@@ -9,7 +9,8 @@ import (
 
 func TestRunTailEvents_FromStartNoFollow(t *testing.T) {
 	tmpDir, _ := os.MkdirTemp("", "events-tail")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
 	p := filepath.Join(tmpDir, "events.jsonl")
 	if err := os.WriteFile(p, []byte("{\"id\":1}\n"), 0644); err != nil {
 		t.Fatalf("failed writing events file: %v", err)

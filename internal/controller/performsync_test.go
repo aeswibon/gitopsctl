@@ -80,7 +80,8 @@ func TestPerformSync_ManualPolicySetsOutOfSync(t *testing.T) {
 	defer func() { _ = os.RemoveAll(repoPath) }()
 
 	workDir, _ := os.MkdirTemp("", "perform-sync-manual")
-	defer os.RemoveAll(workDir)
+	defer func() { _ = os.RemoveAll(workDir) }()
+
 	appCfg := filepath.Join(workDir, "apps.json")
 
 	a := &app.Application{
@@ -108,9 +109,11 @@ func TestPerformSync_NoChangesSetsSynced(t *testing.T) {
 	ctrl := NewController(logger, apps, cluster.NewClusters())
 
 	repoPath := createLocalRepo(t)
-	defer os.RemoveAll(repoPath)
+	defer func() { _ = os.RemoveAll(repoPath) }()
+
 	workDir, _ := os.MkdirTemp("", "perform-sync-nochanges")
-	defer os.RemoveAll(workDir)
+	defer func() { _ = os.RemoveAll(workDir) }()
+
 	appCfg := filepath.Join(workDir, "apps.json")
 
 	// First clone to workDir and read hash.
@@ -143,9 +146,11 @@ func TestPerformSync_ManifestPathMissingSetsError(t *testing.T) {
 	ctrl := NewController(logger, apps, cluster.NewClusters())
 
 	repoPath := createLocalRepo(t)
-	defer os.RemoveAll(repoPath)
+	defer func() { _ = os.RemoveAll(repoPath) }()
+
 	workDir, _ := os.MkdirTemp("", "perform-sync-missing-manifest")
-	defer os.RemoveAll(workDir)
+	defer func() { _ = os.RemoveAll(workDir) }()
+
 	appCfg := filepath.Join(workDir, "apps.json")
 
 	if _, err := gitcore.CloneOrPull(context.Background(), logger, repoPath, "master", workDir); err != nil {

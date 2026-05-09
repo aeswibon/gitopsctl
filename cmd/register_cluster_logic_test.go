@@ -12,7 +12,8 @@ import (
 
 func TestValidateAndNormalizeClusterInput_WithExplicitPath(t *testing.T) {
 	tmpDir, _ := os.MkdirTemp("", "kubeconfig")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
 	kcfg := filepath.Join(tmpDir, "config")
 	if err := os.WriteFile(kcfg, []byte("apiVersion: v1\nkind: Config\n"), 0644); err != nil {
 		t.Fatalf("failed writing kubeconfig: %v", err)
@@ -60,7 +61,8 @@ func TestCreateClusterConfig_StatusByTestFlag(t *testing.T) {
 func TestRegisterClusterHelpers_DryRunAndSave(t *testing.T) {
 	origWd, _ := os.Getwd()
 	tmpDir, _ := os.MkdirTemp("", "register-cluster-helpers")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
 	defer func() { _ = os.Chdir(origWd) }()
 
 	_ = os.Chdir(tmpDir)
