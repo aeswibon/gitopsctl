@@ -184,7 +184,8 @@ data:
 
 func TestApplyManifests_HelmLoadFailure(t *testing.T) {
 	tmpDir, _ := os.MkdirTemp("", "apply-helm-fail")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
 	// Create marker Chart file but invalid chart structure.
 	if err := os.WriteFile(filepath.Join(tmpDir, "Chart.yaml"), []byte("apiVersion: v2\nname: broken\nversion: 0.1.0\n"), 0644); err != nil {
 		t.Fatalf("failed writing chart: %v", err)
@@ -195,7 +196,8 @@ func TestApplyManifests_HelmLoadFailure(t *testing.T) {
 
 func TestApplyManifests_KustomizeBuildFailure(t *testing.T) {
 	tmpDir, _ := os.MkdirTemp("", "apply-kustomize-fail")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
 	if err := os.WriteFile(filepath.Join(tmpDir, "kustomization.yaml"), []byte("resources:\n- missing.yaml\n"), 0644); err != nil {
 		t.Fatalf("failed writing kustomization file: %v", err)
 	}

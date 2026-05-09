@@ -30,8 +30,9 @@ func TestClusters_LockListDeleteAndLen(t *testing.T) {
 func TestVerifyCluster(t *testing.T) {
 	origWd, _ := os.Getwd()
 	tmpDir, _ := os.MkdirTemp("", "verify-cluster")
-	defer os.RemoveAll(tmpDir)
-	defer os.Chdir(origWd)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+	defer func() { _ = os.Chdir(origWd) }()
+
 	_ = os.Chdir(tmpDir)
 
 	cs := NewClusters()

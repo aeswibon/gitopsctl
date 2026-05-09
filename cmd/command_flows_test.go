@@ -24,7 +24,8 @@ func TestRunStatusAppsCommand_EmptyState(t *testing.T) {
 	origWd, _ := os.Getwd()
 	tmpDir, _ := os.MkdirTemp("", "status-apps")
 	defer os.RemoveAll(tmpDir)
-	defer os.Chdir(origWd)
+	defer func() { _ = os.Chdir(origWd) }()
+
 	_ = os.Chdir(tmpDir)
 	logger = zap.NewNop()
 	statusAppOpts = utils.ListOptions{OutputFormat: "table", SortBy: "name"}
@@ -38,7 +39,8 @@ func TestRunRegisterClusterCommand_DryRun(t *testing.T) {
 	origWd, _ := os.Getwd()
 	tmpDir, _ := os.MkdirTemp("", "register-cluster-run")
 	defer os.RemoveAll(tmpDir)
-	defer os.Chdir(origWd)
+	defer func() { _ = os.Chdir(origWd) }()
+
 	_ = os.Chdir(tmpDir)
 	logger = zap.NewNop()
 
@@ -74,7 +76,8 @@ func TestRunUnregisterCommand_DryRunExistingApp(t *testing.T) {
 	origWd, _ := os.Getwd()
 	tmpDir, _ := os.MkdirTemp("", "unregister-run")
 	defer os.RemoveAll(tmpDir)
-	defer os.Chdir(origWd)
+	defer func() { _ = os.Chdir(origWd) }()
+
 	_ = os.Chdir(tmpDir)
 	logger = zap.NewNop()
 

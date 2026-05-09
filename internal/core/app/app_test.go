@@ -69,9 +69,12 @@ func TestLoadSaveApplications(t *testing.T) {
 
 	// 6. Test Locking (simple call)
 	apps2.Lock()
+	_ = apps2.Len()
 	apps2.Unlock()
 	apps2.RLock()
+	_ = apps2.Len()
 	apps2.RUnlock()
+
 }
 
 func TestApplication_MoreRendering(t *testing.T) {

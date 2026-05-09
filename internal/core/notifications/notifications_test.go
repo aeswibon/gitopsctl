@@ -26,7 +26,8 @@ func TestSendWebhook(t *testing.T) {
 
 		body, _ := io.ReadAll(r.Body)
 		var received Notification
-		json.Unmarshal(body, &received)
+		_ = json.Unmarshal(body, &received)
+
 		if received.App != n.App {
 			t.Errorf("Expected app %s, got %s", n.App, received.App)
 		}

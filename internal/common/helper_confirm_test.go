@@ -13,7 +13,8 @@ func TestConfirmAction_AcceptsYes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(f.Name())
+	defer func() { _ = os.Remove(f.Name()) }()
+
 	if _, err := f.WriteString("yes\n"); err != nil {
 		t.Fatal(err)
 	}

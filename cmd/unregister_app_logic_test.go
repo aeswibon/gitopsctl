@@ -31,7 +31,8 @@ func TestConfirmAction_YesInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(f.Name())
+	defer func() { _ = os.Remove(f.Name()) }()
+
 	if _, err := f.WriteString("yes\n"); err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +54,8 @@ func TestConfirmUnregister_AcceptsYes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(f.Name())
+	defer func() { _ = os.Remove(f.Name()) }()
+
 	if _, err := f.WriteString("yes\n"); err != nil {
 		t.Fatal(err)
 	}
