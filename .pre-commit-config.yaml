@@ -1,3 +1,4 @@
+default_stages: [pre-push]
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -9,8 +10,11 @@ repos:
 
   - repo: https://github.com/golangci/golangci-lint
     rev: v2.12.2
+
     hooks:
       - id: golangci-lint
+        args: [--timeout=5m]
+        pass_filenames: false
 
   - repo: local
     hooks:
@@ -34,9 +38,9 @@ repos:
         language: system
         pass_filenames: false
 
-      - id: go-test
-        name: go test
-        entry: go test ./...
+      - id: go-test-coverage
+        name: go test coverage
+        entry: bash -c 'go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | grep total | awk "{print \$3}" | sed "s/%//" | awk "{if (\$1 < 80.0) exit 1}"'
         language: system
         pass_filenames: false
 

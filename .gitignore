@@ -2,3 +2,4 @@ configs
 gitopsctl
 .tmp_gitopsctl*
 dist/
+coverage.out

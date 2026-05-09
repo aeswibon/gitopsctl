@@ -26,16 +26,18 @@ First off, thank you for considering contributing to GitOpsCTL! It's people like
    ```bash
    go build -o gitopsctl .
    ```
-5. **Set up pre-commit**:
-   We use `pre-commit` to ensure code quality before every commit.
+5. **Set up hooks**:
+   We use `pre-commit` to ensure code quality. Coverage checks are enforced on push.
    ```bash
    pip install pre-commit
-   pre-commit install
+   pre-commit install --hook-type pre-commit --hook-type pre-push
    ```
-6. **Run tests**:
+6. **Run tests & check coverage**:
    ```bash
-   go test ./...
+   go test -coverprofile=coverage.out ./...
+   go tool cover -func=coverage.out
    ```
+
 
 
 ## How to Contribute
@@ -53,7 +55,9 @@ git checkout -b feature/my-awesome-feature
 Write your code, making sure to follow standard Go conventions.
 - Run `go fmt ./...` to format your code.
 - Run `go vet ./...` to catch common mistakes.
+- **Maintain Test Coverage**: Ensure all changes are covered by tests. The project enforces a minimum of **80% total coverage**.
 - Ensure all existing and new tests pass.
+
 
 ### 4. Commit Messages
 Write clear, concise commit messages. A good commit message should describe *what* was changed and *why*.

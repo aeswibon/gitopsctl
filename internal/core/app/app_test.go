@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -52,6 +53,49 @@ func TestLoadSaveApplications(t *testing.T) {
 	}
 	if loadedApp.RepoURL != testApp.RepoURL {
 		t.Errorf("Expected repo %s, got %s", testApp.RepoURL, loadedApp.RepoURL)
+	}
+
+	// 4. Test List
+	list := apps2.List()
+	if len(list) != 1 {
+		t.Errorf("Expected list length 1, got %d", len(list))
+	}
+
+	// 5. Test Delete
+	apps2.Delete("test-app")
+	if apps2.Len() != 0 {
+		t.Error("Delete failed")
+	}
+
+	// 6. Test Locking (simple call)
+	apps2.Lock()
+	_ = apps2.Len()
+	apps2.Unlock()
+	apps2.RLock()
+	_ = apps2.Len()
+	apps2.RUnlock()
+
+}
+
+func TestApplication_MoreRendering(t *testing.T) {
+	a := &Application{
+		Name:    "test",
+		RepoURL: "https://github.com/user/repo.git",
+	}
+
+	headers := a.ToTableHeaders(false)
+	if len(headers) != 6 {
+		t.Errorf("Expected 6 headers, got %d", len(headers))
+	}
+
+	jsonMap := a.ToJSONMap()
+	if jsonMap["name"] != "test" {
+		t.Error("JSON name mismatch")
+	}
+
+	yaml := a.ToYAMLString()
+	if !strings.Contains(yaml, "name: test") {
+		t.Error("YAML content mismatch")
 	}
 }
 

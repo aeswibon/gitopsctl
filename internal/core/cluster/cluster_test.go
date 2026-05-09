@@ -3,6 +3,7 @@ package cluster
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -51,5 +52,57 @@ func TestLoadSaveClusters(t *testing.T) {
 	}
 	if loaded.KubeconfigPath != testCluster.KubeconfigPath {
 		t.Errorf("Expected kubeconfig %s, got %s", testCluster.KubeconfigPath, loaded.KubeconfigPath)
+	}
+}
+
+func TestCluster_Rendering(t *testing.T) {
+	c := &Cluster{
+		Name:           "prod",
+		KubeconfigPath: "/path/to/kube",
+		Status:         "Active",
+	}
+
+	// 1. Table
+	headers := c.ToTableHeaders(false)
+	if len(headers) != 4 {
+		t.Errorf("Expected 4 headers, got %d", len(headers))
+	}
+	row := c.ToTableRow(false)
+	if row[1] != "✅ Active" {
+		t.Errorf("Expected status '✅ Active', got %s", row[1])
+	}
+
+	// 2. JSON
+	jsonMap := c.ToJSONMap()
+	if jsonMap["name"] != "prod" {
+		t.Error("JSON name mismatch")
+	}
+
+	// 3. YAML
+	yaml := c.ToYAMLString()
+	if !strings.Contains(yaml, "name: prod") {
+		t.Error("YAML content mismatch")
+	}
+}
+
+func TestFormatClusterStatus(t *testing.T) {
+	tests := []struct {
+		status string
+		expect string
+	}{
+		{"Active", "✅ Active"},
+		{"Error", "❗ Error"},
+		{"Pending", "⏳ Pending"},
+		{"Disconnected", "❌ Disconnected"},
+		{"Unknown", "❓ Unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.status, func(t *testing.T) {
+			got := formatClusterStatus(tt.status)
+			if got != tt.expect {
+				t.Errorf("formatClusterStatus(%q) = %q, want %q", tt.status, got, tt.expect)
+			}
+		})
 	}
 }

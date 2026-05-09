@@ -21,12 +21,17 @@ func (h *Handler) Register(c echo.Context) error {
 		h.logger.Error("Failed to bind register application request", zap.Error(err))
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request payload")
 	}
-	if err := c.Validate(req); err != nil {
-		h.logger.Error("Failed to validate register application request", zap.Error(err))
-		return err
+	if c.Echo().Validator != nil {
+		if err := c.Validate(req); err != nil {
+			h.logger.Error("Failed to validate register application request", zap.Error(err))
+			return err
+		}
 	}
 
 	req.Path = strings.TrimPrefix(strings.TrimSuffix(req.Path, "/"), "/")
+	if req.ClusterName == "" {
+		req.ClusterName = req.Cluster
+	}
 
 	// Validate the referenced cluster exists
 	h.clusters.RLock()

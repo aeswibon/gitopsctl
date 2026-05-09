@@ -374,21 +374,22 @@ func (c *Controller) handleAppCommand(cmd AppCommand, appConfigFile string) {
 
 	switch cmd.Type {
 	case AppCommandStart:
-		// Load the application config fresh in case it was updated
+		// Load the application config fresh in case it was updated.
+		// Do not hold apps.RLock across saveAppStatus or reconcileApp: both need apps.Lock.
 		c.apps.RLock()
-		defer c.apps.RUnlock()
-
 		appConfig, exists := c.apps.Get(cmd.AppName)
 		if !exists {
+			c.apps.RUnlock()
 			c.logger.Error("Attempted to start non-existent application", zap.String("app", cmd.AppName))
 			return
 		}
 
 		c.clusters.RLock()
-		defer c.clusters.RUnlock()
-
 		_, clusterExists := c.clusters.Get(appConfig.ClusterName)
+		c.clusters.RUnlock()
+
 		if !clusterExists {
+			c.apps.RUnlock()
 			c.logger.Error("Attempted to start application with non-existent cluster",
 				zap.String("app", cmd.AppName),
 				zap.String("cluster", appConfig.ClusterName))
@@ -407,10 +408,12 @@ func (c *Controller) handleAppCommand(cmd AppCommand, appConfigFile string) {
 			// The deferred func in reconcileApp will clean up the old entry from runningApps
 		}
 
+		appCopy := *appConfig // Create a copy for the goroutine while still holding RLock
+		c.apps.RUnlock()
+
 		appCtx, appCancel := context.WithCancel(c.ctx) // New context for the app
 		syncChan := make(chan struct{}, 1)             // New sync channel for the app
 
-		appCopy := *appConfig // Create a copy for the goroutine
 		c.wg.Add(1)
 		c.runningApps[cmd.AppName] = &appRuntime{cancel: appCancel, syncChan: syncChan}
 		go c.reconcileApp(appCtx, &appCopy, appConfigFile, appCancel, syncChan)

@@ -17,9 +17,8 @@ func (h *Handler) Unregister(c echo.Context) error {
 	name := c.Param("name")
 
 	h.apps.RLock()
-	defer h.apps.RUnlock()
-
 	_, exists := h.apps.Get(name)
+	h.apps.RUnlock()
 	if !exists {
 		return echo.NewHTTPError(http.StatusNotFound, "Application not found")
 	}

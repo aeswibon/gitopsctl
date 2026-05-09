@@ -336,6 +336,9 @@ func (cs *ClientSet) applyYAMLData(ctx context.Context, data []byte, sourceName 
 // CheckConnectivity verifies connectivity to the Kubernetes cluster.
 // It uses the Kubernetes clientset to fetch the server version, ensuring the cluster is reachable.
 func (cs *ClientSet) CheckConnectivity(ctx context.Context) error {
+	if cs.config == nil {
+		return fmt.Errorf("failed to create kubernetes clientset: missing Kubernetes config")
+	}
 	kubeClient, err := kubernetes.NewForConfig(cs.config)
 	if err != nil {
 		return fmt.Errorf("failed to create kubernetes clientset: %w", err)

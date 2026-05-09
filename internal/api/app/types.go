@@ -17,6 +17,8 @@ type RegisterRequest struct {
 	Path string `json:"path" validate:"required"`
 	// ClusterName is the name of the Kubernetes cluster where the application will be deployed.
 	ClusterName string `json:"cluster_name" validate:"required"`
+	// Cluster is a backwards-compatible alias for cluster_name.
+	Cluster string `json:"cluster"`
 	// Interval is the frequency at which the application should be synced with the Git repository.
 	Interval string `json:"interval" validate:"required"`
 }
