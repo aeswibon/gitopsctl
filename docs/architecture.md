@@ -44,4 +44,27 @@ GitOpsCTL is designed to be **stateless**. It stores its configuration in simple
 - `configs/apps.json`: Application metadata and current synchronization status.
 - `configs/clusters.json`: Cluster connection details and security policies.
 
-These files can be backed up or managed via Git (GitOps for your GitOps!).
+## Codebase Layout
+
+```txt
+main.go                 → Entry: delegates to cmd
+cmd/                    → Cobra commands (apps, clusters, start, dashboard)
+internal/api/           → Echo server, /api/v1 handlers, SSE logic
+internal/controller/    → Reconciliation loop, sync triggers, health checks
+internal/core/app/      → Application domain model and persistence
+internal/core/cluster/  → Cluster domain model and persistence
+internal/core/git/      → Git operations (Clone/Pull/Hash)
+internal/core/k8s/      → Kubernetes client and manifest application
+internal/common/        → Shared types and validation
+internal/events/        → Integration event bus and sinks (Audit, Webhook)
+internal/tui/           → Terminal UI (Bubble Tea/Lipgloss)
+configs/                → Default directory for JSON stores
+```
+
+## Request Flow
+
+1. **Management**: CLI or API updates in-memory stores and persists JSON under `configs/`.
+2. **Reconciliation**: `gitopsctl start` loads apps and clusters, starting a goroutine per application.
+3. **Loop**: The controller fetches Git at the specified `interval`, compares the commit hash, and applies manifests if needed.
+4. **Integration**: Events are emitted to the event bus and fanned out to SSE, Audit Logs, and Webhooks.
+5. **Observation**: The TUI dashboard connects to the API via SSE for real-time status updates.
