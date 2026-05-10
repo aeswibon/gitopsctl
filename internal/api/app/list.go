@@ -12,9 +12,10 @@ func (h *Handler) List(c echo.Context) error {
 	h.apps.RLock()
 	defer h.apps.RUnlock()
 
-	var responses []Response
+	responses := []Response{}
 	for _, app := range h.apps.List() {
 		responses = append(responses, ConvertToResponse(app))
 	}
+
 	return c.JSON(http.StatusOK, responses)
 }
