@@ -646,9 +646,10 @@ func (c *Controller) checkHealth(ctx context.Context, logger *zap.Logger, applic
 
 	// Always report health metric
 	val := 0.0
-	if overallStatus == "Healthy" {
+	switch overallStatus {
+	case "Healthy":
 		val = 1.0
-	} else if overallStatus == "Progressing" {
+	case "Progressing":
 		val = 0.5
 	}
 	metrics.AppHealthStatus.WithLabelValues(application.Name, application.ClusterName).Set(val)

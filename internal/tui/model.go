@@ -262,11 +262,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "tab", "shift+tab":
 			if !m.isFiltering {
-				if m.state == appsView {
+				switch m.state {
+				case appsView:
 					m.state = clustersView
-				} else if m.state == clustersView {
+				case clustersView:
 					m.state = appsView
-				} else {
+				default:
 					m.state = appsView
 				}
 				m.appCursor = 0
@@ -370,11 +371,12 @@ func (m Model) View() string {
 	appsTab := InactiveTab.Render("Applications")
 	clTab := InactiveTab.Render("Clusters")
 	logsTab := InactiveTab.Render("Activity")
-	if m.state == appsView {
+	switch m.state {
+	case appsView:
 		appsTab = ActiveTab.Render("Applications")
-	} else if m.state == clustersView {
+	case clustersView:
 		clTab = ActiveTab.Render("Clusters")
-	} else {
+	default:
 		logsTab = ActiveTab.Render("Activity")
 	}
 	out.WriteString(TabBar.Width(m.width-2).Render(appsTab+clTab+logsTab) + "\n\n")
