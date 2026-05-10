@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"go.uber.org/zap"
@@ -73,13 +74,13 @@ func TestApplyYAMLData_Validation(t *testing.T) {
 	}
 
 	// Test with empty data
-	errors := cs.applyYAMLData(context.Background(), []byte(""), "test")
+	_, errors := cs.applyYAMLData(context.Background(), []byte(""), "test", "app1", "cluster1")
 	if len(errors) != 0 {
 		t.Errorf("Expected 0 errors for empty data, got %d", len(errors))
 	}
 
 	// Test with invalid YAML
-	errors = cs.applyYAMLData(context.Background(), []byte("invalid: yaml: :"), "test")
+	_, errors = cs.applyYAMLData(context.Background(), []byte("invalid: yaml: :"), "test", "app1", "cluster1")
 	if len(errors) == 0 {
 		t.Error("Expected error for invalid YAML, got 0")
 	}
@@ -88,7 +89,7 @@ func TestApplyYAMLData_Validation(t *testing.T) {
 func TestNewClientSet_EmptyPath(t *testing.T) {
 	logger := zap.NewNop()
 	// This will try to load from home dir, might fail but we check if it handles empty path
-	_, _ = NewClientSet(logger, "")
+	_, _ = NewClientSet(logger, "", nil)
 }
 
 func TestHasHelmChart_YmlVariant(t *testing.T) {
@@ -137,7 +138,7 @@ func TestApplyManifests_RawYamlWithDecodeError(t *testing.T) {
 	}
 
 	cs := &ClientSet{logger: zap.NewNop()}
-	errs := cs.ApplyManifests(context.Background(), tmpDir)
+	_, errs := cs.ApplyManifests(context.Background(), tmpDir, "app1", "cluster1")
 	if len(errs) == 0 {
 		t.Fatal("expected at least one apply error for invalid YAML")
 	}
@@ -179,7 +180,7 @@ users:
 		t.Fatal(err)
 	}
 
-	cs, err := NewClientSet(zap.NewNop(), kcfg)
+	cs, err := NewClientSet(zap.NewNop(), kcfg, nil)
 	if err != nil {
 		t.Fatalf("NewClientSet: %v", err)
 	}
@@ -198,7 +199,7 @@ metadata:
 data:
   key: value
 `)
-	errs := cs.applyYAMLData(context.Background(), yamlData, "inline")
+	_, errs := cs.applyYAMLData(context.Background(), yamlData, "inline", "app1", "cluster1")
 	if len(errs) == 0 {
 		t.Fatal("expected error for unnamed resource")
 	}
@@ -216,7 +217,7 @@ data:
   key: first
 `)
 
-	if errs := cs.applyYAMLData(ctx, first, "inline"); len(errs) != 0 {
+	if _, errs := cs.applyYAMLData(ctx, first, "inline", "app1", "cluster1"); len(errs) != 0 {
 		t.Fatalf("expected create to succeed, got %v", errs)
 	}
 
@@ -238,7 +239,7 @@ metadata:
 data:
   key: second
 `)
-	if errs := cs.applyYAMLData(ctx, second, "inline"); len(errs) != 0 {
+	if _, errs := cs.applyYAMLData(ctx, second, "inline", "app1", "cluster1"); len(errs) != 0 {
 		t.Fatalf("expected update to succeed, got %v", errs)
 	}
 
@@ -259,7 +260,7 @@ kind: Namespace
 metadata:
   name: staging
 `)
-	if errs := cs.applyYAMLData(context.Background(), yamlData, "inline"); len(errs) != 0 {
+	if _, errs := cs.applyYAMLData(context.Background(), yamlData, "inline", "app1", "cluster1"); len(errs) != 0 {
 		t.Fatalf("expected namespace apply to succeed, got %v", errs)
 	}
 }
@@ -285,7 +286,7 @@ data:
 		t.Fatal(err)
 	}
 
-	if errs := fakeClientSet().ApplyManifests(context.Background(), tmpDir); len(errs) != 0 {
+	if _, errs := fakeClientSet().ApplyManifests(context.Background(), tmpDir, "app1", "cluster1"); len(errs) != 0 {
 		t.Fatalf("expected raw manifest apply to succeed, got %v", errs)
 	}
 }
@@ -311,7 +312,7 @@ data:
 		t.Fatal(err)
 	}
 
-	if errs := fakeClientSet().ApplyManifests(context.Background(), tmpDir); len(errs) != 0 {
+	if _, errs := fakeClientSet().ApplyManifests(context.Background(), tmpDir, "app1", "cluster1"); len(errs) != 0 {
 		t.Fatalf("expected kustomize apply to succeed, got %v", errs)
 	}
 }
@@ -325,7 +326,7 @@ func TestApplyManifests_HelmLoadFailure(t *testing.T) {
 		t.Fatalf("failed writing chart: %v", err)
 	}
 	cs := &ClientSet{logger: zap.NewNop()}
-	_ = cs.ApplyManifests(context.Background(), tmpDir)
+	_, _ = cs.ApplyManifests(context.Background(), tmpDir, "app1", "cluster1")
 }
 
 func TestApplyManifests_KustomizeBuildFailure(t *testing.T) {
@@ -336,8 +337,62 @@ func TestApplyManifests_KustomizeBuildFailure(t *testing.T) {
 		t.Fatalf("failed writing kustomization file: %v", err)
 	}
 	cs := &ClientSet{logger: zap.NewNop()}
-	errs := cs.ApplyManifests(context.Background(), tmpDir)
+	_, errs := cs.ApplyManifests(context.Background(), tmpDir, "app1", "cluster1")
 	if len(errs) == 0 {
 		t.Fatal("expected kustomize build error")
+	}
+}
+
+func TestNamespaceRestriction(t *testing.T) {
+	cs := fakeClientSet()
+	cs.allowedNamespaces = []string{"allowed"}
+
+	// 1. applyYAMLData with disallowed namespace
+	badYaml := []byte(`
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sample
+  namespace: forbidden
+`)
+	_, errs := cs.applyYAMLData(context.Background(), badYaml, "test", "app1", "cluster1")
+	if len(errs) == 0 {
+		t.Fatal("expected error for forbidden namespace in applyYAMLData")
+	}
+	if !strings.Contains(errs[0].Error(), "not in the allowed list") {
+		t.Fatalf("unexpected error message: %v", errs[0])
+	}
+
+	// 2. applyYAMLData with allowed namespace
+	goodYaml := []byte(`
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sample
+  namespace: allowed
+`)
+	_, errs = cs.applyYAMLData(context.Background(), goodYaml, "test", "app1", "cluster1")
+	if len(errs) != 0 {
+		t.Fatalf("expected success for allowed namespace, got %v", errs)
+	}
+
+	// 3. GetResourceHealth with disallowed namespace
+	_, _, err := cs.GetResourceHealth(context.Background(), ResourceMetadata{
+		Namespace: "forbidden",
+		Name:      "sample",
+		Kind:      "ConfigMap",
+	})
+	if err == nil {
+		t.Fatal("expected error for forbidden namespace in GetResourceHealth")
+	}
+
+	// 4. GetResourceHealth with allowed namespace
+	_, _, err = cs.GetResourceHealth(context.Background(), ResourceMetadata{
+		Namespace: "allowed",
+		Name:      "sample",
+		Kind:      "ConfigMap",
+	})
+	if err != nil {
+		t.Fatalf("expected success for allowed namespace in GetResourceHealth, got %v", err)
 	}
 }

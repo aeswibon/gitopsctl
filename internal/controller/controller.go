@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -294,7 +295,7 @@ func (c *Controller) clusterHealthChecker() {
 
 func (c *Controller) performClusterHealthCheck(ctx context.Context, cl *cluster.Cluster) {
 	logger := c.logger.With(zap.String("cluster", cl.Name))
-	k8sClient, err := k8s.NewClientSet(logger, cl.KubeconfigPath)
+	k8sClient, err := k8s.NewClientSet(logger, cl.KubeconfigPath, cl.AllowedNamespaces)
 	if err != nil {
 		cl.Status = "Error"
 		cl.Message = fmt.Sprintf("Failed to create K8s client: %v", err)
@@ -427,6 +428,8 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 	}
 	defer func() { _ = git.CleanUpRepo(logger, repoDir) }()
 
+	var client k8sApplier
+
 	// Validate cluster exists before entering the polling loop.
 	if app.ClusterName != "" {
 		c.clusters.RLock()
@@ -447,7 +450,10 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	c.performSync(appCtx, logger, app, repoDir, nil, appConfigFile, "initial")
+	c.performSync(appCtx, logger, app, repoDir, client, appConfigFile, "initial")
+	if app.Status == "Synced" || app.Status == "Healthy" {
+		c.checkHealth(appCtx, logger, app, client, appConfigFile)
+	}
 
 	// Terminal error on initial sync (e.g. cluster missing) — stop looping.
 	if app.Status == "Error" {
@@ -457,10 +463,11 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 	for {
 		select {
 		case <-ticker.C:
-
-			c.performSync(appCtx, logger, app, repoDir, nil, appConfigFile, "poll")
+			c.performSync(appCtx, logger, app, repoDir, client, appConfigFile, "poll")
+			c.checkHealth(appCtx, logger, app, client, appConfigFile)
 		case <-syncChan:
-			c.performSync(appCtx, logger, app, repoDir, nil, appConfigFile, "manual")
+			c.performSync(appCtx, logger, app, repoDir, client, appConfigFile, "manual")
+			c.checkHealth(appCtx, logger, app, client, appConfigFile)
 
 		case <-appCtx.Done():
 			if app.Status != "Stopped" && app.Status != "Error" {
@@ -476,86 +483,175 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 // k8sApplier abstracts the Kubernetes apply operation so performSync can be
 // unit-tested without a real cluster.
 type k8sApplier interface {
-	ApplyManifests(ctx context.Context, manifestsDir string) []error
+	ApplyManifests(ctx context.Context, manifestsDir string, appName, clusterName string) ([]k8s.ResourceMetadata, []error)
+	GetResourceHealth(ctx context.Context, r k8s.ResourceMetadata) (string, string, error)
 }
 
-func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *app.Application, repoDir string, client k8sApplier, appConfigFile string, trigger string) {
-	c.emit(ctx, events.TypeAppSyncStarted, map[string]any{"app": app.Name, "trigger": trigger})
+func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, application *app.Application, repoDir string, client k8sApplier, appConfigFile string, trigger string) {
+	oldStatus := application.Status
+	oldHash := application.LastSyncedGitHash
+	c.emit(ctx, events.TypeAppSyncStarted, map[string]any{"app": application.Name, "trigger": trigger})
 
-	currentHash, err := git.CloneOrPull(ctx, logger, app.RepoURL, app.Branch, repoDir)
+	currentHash, err := git.CloneOrPull(ctx, logger, application.RepoURL, application.Branch, repoDir)
 	if err != nil {
-		app.Status = "Error"
-		app.Message = fmt.Sprintf("Git error: %v", err)
-		app.ConsecutiveFailures++
-		c.saveAppStatus(app, appConfigFile, true)
+		metrics.GitPullTotal.WithLabelValues(application.Name, "failure").Inc()
+		application.Status = "Error"
+		application.Message = fmt.Sprintf("Git error: %v", err)
+		application.ConsecutiveFailures++
+		c.saveAppStatus(application, appConfigFile, true)
+		return
+	}
+	metrics.GitPullTotal.WithLabelValues(application.Name, "success").Inc()
+	application.LatestGitHash = currentHash
+
+	if currentHash == application.LastSyncedGitHash && trigger == "poll" {
 		return
 	}
 
-	if currentHash == app.LastSyncedGitHash && trigger == "poll" {
+	if application.SyncPolicy == "manual" && currentHash != application.ApprovedGitHash {
+		application.Status = "OutOfSync"
+		application.Message = fmt.Sprintf("New commit %s available (Manual sync required)", currentHash)
+		c.saveAppStatus(application, appConfigFile, true)
 		return
 	}
 
-	if app.SyncPolicy == "manual" && currentHash != app.ApprovedGitHash {
-		app.Status = "OutOfSync"
-		app.Message = fmt.Sprintf("Manual sync required. Latest: %s, Approved: %s", currentHash, app.ApprovedGitHash)
-		c.saveAppStatus(app, appConfigFile, true)
+	manifestsDir := filepath.Join(repoDir, application.Path)
+	if _, err := os.Stat(manifestsDir); err != nil {
+		application.Status = "Error"
+		application.Message = fmt.Sprintf("Manifest path missing: %v", err)
+		application.ConsecutiveFailures++
+		c.saveAppStatus(application, appConfigFile, true)
 		return
 	}
 
-	manifestsDir := filepath.Join(repoDir, app.Path)
-
-	// Lazily create the k8s client only when we actually need to apply.
 	if client == nil {
 		c.clusters.RLock()
-		targetCluster, exists := c.clusters.Get(app.ClusterName)
+		cl, ok := c.clusters.Get(application.ClusterName)
 		c.clusters.RUnlock()
-		if !exists {
-			app.Status = "Error"
-			app.Message = fmt.Sprintf("Cluster '%s' does not exist", app.ClusterName)
-			c.saveAppStatus(app, appConfigFile, true)
+		if !ok {
+			application.Status = "Error"
+			application.Message = fmt.Sprintf("Cluster '%s' not found", application.ClusterName)
+			c.saveAppStatus(application, appConfigFile, true)
 			return
 		}
-		newClient, err := k8s.NewClientSet(logger, targetCluster.KubeconfigPath)
+
+		newClient, err := k8s.NewClientSet(c.logger, cl.KubeconfigPath, cl.AllowedNamespaces)
 		if err != nil || newClient == nil {
-			app.Status = "Error"
-			app.Message = fmt.Sprintf("Failed to create k8s client for cluster '%s': %v", app.ClusterName, err)
-			app.ConsecutiveFailures++
-			c.saveAppStatus(app, appConfigFile, true)
+			application.Status = "Error"
+			application.Message = fmt.Sprintf("Failed to create k8s client for cluster '%s': %v", application.ClusterName, err)
+			application.ConsecutiveFailures++
+			c.saveAppStatus(application, appConfigFile, true)
 			return
 		}
 		client = newClient
 	}
 
-	applyErrors := client.ApplyManifests(ctx, manifestsDir)
+	start := time.Now()
+	applied, applyErrors := client.ApplyManifests(ctx, manifestsDir, application.Name, application.ClusterName)
 	if len(applyErrors) > 0 {
+		metrics.AppSyncTotal.WithLabelValues(application.Name, application.ClusterName, "failure").Inc()
 		errMsg := fmt.Sprintf("Apply error: %v", applyErrors[0])
-		app.Status = "Error"
-		app.Message = errMsg
-		app.ConsecutiveFailures++
+		application.Status = "Error"
+		application.Message = errMsg
+		application.ConsecutiveFailures++
 	} else {
-		app.LastSyncedGitHash = currentHash
-		app.Status = "Synced"
-		app.Message = fmt.Sprintf("Synced to %s", currentHash)
-		app.ConsecutiveFailures = 0
+		metrics.AppSyncTotal.WithLabelValues(application.Name, application.ClusterName, "success").Inc()
+		metrics.AppSyncDuration.WithLabelValues(application.Name, application.ClusterName).Observe(time.Since(start).Seconds())
+		application.LastSyncedGitHash = currentHash
+		application.Status = "Synced"
+		application.Message = fmt.Sprintf("Synced to %s", currentHash)
+		application.ConsecutiveFailures = 0
+
+		// Update tracked resources
+		application.AppliedResources = make([]app.ResourceMetadata, 0, len(applied))
+		for _, r := range applied {
+			application.AppliedResources = append(application.AppliedResources, app.ResourceMetadata{
+				Group:     r.Group,
+				Version:   r.Version,
+				Kind:      r.Kind,
+				Namespace: r.Namespace,
+				Name:      r.Name,
+			})
+		}
 	}
 
-	c.notify(app)
-	c.saveAppStatus(app, appConfigFile, true)
+	c.notify(application, oldStatus, oldHash)
+	c.saveAppStatus(application, appConfigFile, true)
 }
 
-func (c *Controller) notify(app *app.Application) {
-	if app.WebhookURL == "" {
+func (c *Controller) notify(application *app.Application, oldStatus, oldHash string) {
+	if application.WebhookURL == "" {
 		return
 	}
 
-	go notifications.SendWebhook(c.logger, app.WebhookURL, app.WebhookSecret, notifications.Notification{
-		App:       app.Name,
-		Cluster:   app.ClusterName,
-		Status:    app.Status,
-		Message:   app.Message,
-		Commit:    app.LastSyncedGitHash,
+	// Only notify if status changed OR a new commit was synced
+	if application.Status == oldStatus && application.LastSyncedGitHash == oldHash {
+		return
+	}
+
+	go notifications.SendWebhook(c.logger, application.WebhookURL, application.WebhookSecret, notifications.Notification{
+		App:       application.Name,
+		Cluster:   application.ClusterName,
+		Status:    application.Status,
+		Message:   application.Message,
+		Commit:    application.LastSyncedGitHash,
 		Timestamp: time.Now(),
 	})
+}
+
+func (c *Controller) checkHealth(ctx context.Context, logger *zap.Logger, application *app.Application, client k8sApplier, appConfigFile string) {
+	oldStatus := application.Status
+	oldHash := application.LastSyncedGitHash
+	if len(application.AppliedResources) == 0 {
+		return
+	}
+
+	overallStatus := "Healthy"
+	var messages []string
+
+	for _, r := range application.AppliedResources {
+		status, msg, err := client.GetResourceHealth(ctx, k8s.ResourceMetadata{
+			Group:     r.Group,
+			Version:   r.Version,
+			Kind:      r.Kind,
+			Namespace: r.Namespace,
+			Name:      r.Name,
+		})
+
+		if err != nil {
+			logger.Warn("Failed to check health", zap.String("app", application.Name), zap.String("kind", r.Kind), zap.String("name", r.Name), zap.Error(err))
+			continue
+		}
+
+		if status == "Degraded" {
+			overallStatus = "Degraded"
+			messages = append(messages, fmt.Sprintf("%s/%s: %s", r.Kind, r.Name, msg))
+		} else if status == "Progressing" && overallStatus == "Healthy" {
+			overallStatus = "Progressing"
+			messages = append(messages, fmt.Sprintf("%s/%s: %s", r.Kind, r.Name, msg))
+		}
+	}
+
+	if overallStatus != application.Status {
+		application.Status = overallStatus
+		if len(messages) > 0 {
+			application.Message = strings.Join(messages, "; ")
+		} else if overallStatus == "Healthy" {
+			application.Message = "All resources healthy"
+		}
+		c.emit(ctx, events.TypeAppStatusChanged, map[string]any{"app": application.Name, "status": overallStatus})
+		c.notify(application, oldStatus, oldHash)
+		c.saveAppStatus(application, appConfigFile, true)
+	}
+
+	// Always report health metric
+	val := 0.0
+	if overallStatus == "Healthy" {
+		val = 1.0
+	} else if overallStatus == "Progressing" {
+		val = 0.5
+	}
+	metrics.AppHealthStatus.WithLabelValues(application.Name, application.ClusterName).Set(val)
 }
 
 func (c *Controller) saveAppStatus(appToSave *app.Application, appConfigFile string, forceSave bool) {

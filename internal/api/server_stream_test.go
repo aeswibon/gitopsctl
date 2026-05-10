@@ -21,7 +21,7 @@ func TestServer_StreamEvents_CancelExits(t *testing.T) {
 	clusters := clustercore.NewClusters()
 	ctrl := controller.NewController(logger, apps, clusters)
 	stream := events.NewStreamSink()
-	s := NewServer(logger, apps, clusters, ctrl, stream)
+	s := NewServer(logger, apps, clusters, ctrl, stream, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -44,7 +44,7 @@ func TestServer_StreamEvents_ReceivesOneEvent(t *testing.T) {
 	clusters := clustercore.NewClusters()
 	ctrl := controller.NewController(logger, apps, clusters)
 	stream := events.NewStreamSink()
-	s := NewServer(logger, apps, clusters, ctrl, stream)
+	s := NewServer(logger, apps, clusters, ctrl, stream, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

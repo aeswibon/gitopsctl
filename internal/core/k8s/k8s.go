@@ -10,12 +10,14 @@ import (
 	"time"
 
 	"aeswibon.com/github/gitopsctl/internal/core/sops"
+	"aeswibon.com/github/gitopsctl/internal/metrics"
 	"go.uber.org/zap"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer/yaml"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
@@ -38,6 +40,15 @@ const (
 	DefaultBurst = 100
 )
 
+// ResourceMetadata stores the basic identity of a Kubernetes resource.
+type ResourceMetadata struct {
+	Group     string
+	Version   string
+	Kind      string
+	Namespace string
+	Name      string
+}
+
 // ClientSet holds Kubernetes clients for dynamic interactions.
 // It encapsulates the dynamic client, REST mapper, and configuration required
 // for interacting with Kubernetes resources.
@@ -52,12 +63,14 @@ type ClientSet struct {
 	mapper meta.RESTMapper
 	// config is the Kubernetes configuration used to initialize clients.
 	config *rest.Config
+	// allowedNamespaces is a list of namespaces this client is allowed to interact with.
+	allowedNamespaces []string
 }
 
 // NewClientSet initializes a Kubernetes client set.
 // It attempts to use the provided kubeconfig file to build the configuration.
 // If the kubeconfig file is not provided or fails, it falls back to in-cluster configuration.
-func NewClientSet(logger *zap.Logger, kubeconfigPath string) (*ClientSet, error) {
+func NewClientSet(logger *zap.Logger, kubeconfigPath string, allowedNamespaces []string) (*ClientSet, error) {
 	var config *rest.Config
 	var err error
 
@@ -101,14 +114,16 @@ func NewClientSet(logger *zap.Logger, kubeconfigPath string) (*ClientSet, error)
 		dynamicClient:  dynamicClient,
 		mapper:         mapper,
 		config:         config,
+		allowedNamespaces: allowedNamespaces,
 	}, nil
 }
 
 // ApplyManifests applies Kubernetes manifests from a given directory to the cluster.
 // It checks if the directory contains a Helm chart or Kustomization file and builds it if present.
 // Otherwise, it processes all YAML files in the specified directory.
-func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) []error {
+func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string, appName, clusterName string) ([]ResourceMetadata, []error) {
 	cs.logger.Info("Applying manifests", zap.String("directory", manifestsDir))
+	var appliedResources []ResourceMetadata
 	var applyErrors []error
 
 	// Pre-process: Decrypt any SOPS-encrypted files in the directory
@@ -133,17 +148,17 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) []
 		chartReq, err := loader.Load(manifestsDir)
 		if err != nil {
 			cs.logger.Error("Failed to load Helm chart", zap.Error(err))
-			return []error{fmt.Errorf("failed to load Helm chart: %w", err)}
+			return nil, []error{fmt.Errorf("failed to load Helm chart: %w", err)}
 		}
 
 		rel, err := client.Run(chartReq, nil)
 		if err != nil {
 			cs.logger.Error("Helm template rendering failed", zap.Error(err))
-			return []error{fmt.Errorf("helm template rendering failed: %w", err)}
+			return nil, []error{fmt.Errorf("helm template rendering failed: %w", err)}
 		}
 
 		cs.logger.Debug("Successfully rendered Helm chart")
-		return cs.applyYAMLData(ctx, []byte(rel.Manifest), filepath.Join(manifestsDir, "Chart.yaml"))
+		return cs.applyYAMLData(ctx, []byte(rel.Manifest), filepath.Join(manifestsDir, "Chart.yaml"), appName, clusterName)
 	}
 
 	fSys := filesys.MakeFsOnDisk()
@@ -153,17 +168,17 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) []
 		resMap, err := k.Run(fSys, manifestsDir)
 		if err != nil {
 			cs.logger.Error("Kustomize build failed", zap.Error(err))
-			return []error{fmt.Errorf("kustomize build failed: %w", err)}
+			return nil, []error{fmt.Errorf("kustomize build failed: %w", err)}
 		}
 
 		yamlBytes, err := resMap.AsYaml()
 		if err != nil {
 			cs.logger.Error("Failed to convert kustomize output to YAML", zap.Error(err))
-			return []error{fmt.Errorf("failed to convert kustomize output to yaml: %w", err)}
+			return nil, []error{fmt.Errorf("failed to convert kustomize output to yaml: %w", err)}
 		}
 
 		cs.logger.Debug("Successfully built kustomization, applying generated YAML")
-		return cs.applyYAMLData(ctx, yamlBytes, filepath.Join(manifestsDir, "kustomization"))
+		return cs.applyYAMLData(ctx, yamlBytes, filepath.Join(manifestsDir, "kustomization"), appName, clusterName)
 	}
 
 	cs.logger.Info("No kustomization found, applying raw YAML files", zap.String("directory", manifestsDir))
@@ -187,16 +202,17 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string) []
 			return nil
 		}
 
-		fileErrors := cs.applyYAMLData(ctx, data, path)
+		fileResources, fileErrors := cs.applyYAMLData(ctx, data, path, appName, clusterName)
 		if len(fileErrors) > 0 {
 			applyErrors = append(applyErrors, fileErrors...)
 		}
+		appliedResources = append(appliedResources, fileResources...)
 		return nil
 	})
 	if err != nil {
 		applyErrors = append(applyErrors, fmt.Errorf("error during manifest directory walk %s: %w", manifestsDir, err))
 	}
-	return applyErrors
+	return appliedResources, applyErrors
 }
 
 func (cs *ClientSet) decryptDirectory(dir string) error {
@@ -208,18 +224,16 @@ func (cs *ClientSet) decryptDirectory(dir string) error {
 			return nil
 		}
 
-		decrypted, err := sops.Decrypt(path)
+		decrypted, wasEncrypted, err := sops.Decrypt(path)
 		if err != nil {
 			return err
 		}
 
-		// If decrypted data is different, write it back to the file
-		// Note: sops.Decrypt returns original data if not encrypted
-		// But it might still be slightly different (formatting etc).
-		// For now, we'll just always write it back if it's potentially encrypted.
-		// Actually, let's only write if it WAS encrypted.
-		// I'll update sops.Decrypt to return a boolean if it was encrypted.
-		return os.WriteFile(path, decrypted, 0644)
+		if wasEncrypted {
+			cs.logger.Debug("Decrypted SOPS file", zap.String("file", path))
+			return os.WriteFile(path, decrypted, 0644)
+		}
+		return nil
 	})
 }
 
@@ -245,7 +259,8 @@ func hasHelmChart(dir string) bool {
 }
 
 // applyYAMLData takes a byte slice of YAML documents (separated by ---) and applies them to the cluster.
-func (cs *ClientSet) applyYAMLData(ctx context.Context, data []byte, sourceName string) []error {
+func (cs *ClientSet) applyYAMLData(ctx context.Context, data []byte, sourceName, appName, clusterName string) ([]ResourceMetadata, []error) {
+	var appliedResources []ResourceMetadata
 	var applyErrors []error
 	decoder := yaml.NewDecodingSerializer(unstructured.UnstructuredJSONScheme)
 	objects := strings.Split(string(data), "\n---")
@@ -280,14 +295,23 @@ func (cs *ClientSet) applyYAMLData(ctx context.Context, data []byte, sourceName 
 
 		var dr dynamic.ResourceInterface
 		if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
-			// namespaced resources should specify the namespace
-			if unstructuredObj.GetNamespace() == "" {
-				unstructuredObj.SetNamespace("default")
+			ns := unstructuredObj.GetNamespace()
+			if ns == "" {
+				ns = "default"
+				unstructuredObj.SetNamespace(ns)
 				cs.logger.Debug("Namespace not specified for namespaced resource, defaulting to 'default'",
 					zap.String("kind", gvk.Kind),
 					zap.String("name", unstructuredObj.GetName()))
 			}
-			dr = cs.dynamicClient.Resource(mapping.Resource).Namespace(unstructuredObj.GetNamespace())
+
+			// Security Check: Namespace Restriction
+			if !cs.isNamespaceAllowed(ns) {
+				cs.logger.Error("Namespace not allowed", zap.String("namespace", ns), zap.String("kind", gvk.Kind), zap.String("name", unstructuredObj.GetName()))
+				applyErrors = append(applyErrors, fmt.Errorf("namespace %q is not in the allowed list for this cluster", ns))
+				continue
+			}
+
+			dr = cs.dynamicClient.Resource(mapping.Resource).Namespace(ns)
 		} else {
 			// cluster-scoped resources should not specify the namespace
 			dr = cs.dynamicClient.Resource(mapping.Resource)
@@ -300,6 +324,7 @@ func (cs *ClientSet) applyYAMLData(ctx context.Context, data []byte, sourceName 
 			// Resource does not exist, create it
 			_, createErr := dr.Create(ctx, unstructuredObj, metav1.CreateOptions{})
 			if createErr != nil {
+				metrics.K8sApplyTotal.WithLabelValues(appName, clusterName, gvk.Kind, "failure").Inc()
 				cs.logger.Error("Failed to create resource",
 					zap.String("kind", gvk.Kind),
 					zap.String("name", unstructuredObj.GetName()),
@@ -308,6 +333,7 @@ func (cs *ClientSet) applyYAMLData(ctx context.Context, data []byte, sourceName 
 				applyErrors = append(applyErrors, fmt.Errorf("failed to create %s %s/%s from %s: %w", gvk.Kind, unstructuredObj.GetNamespace(), unstructuredObj.GetName(), sourceName, createErr))
 				continue
 			}
+			metrics.K8sApplyTotal.WithLabelValues(appName, clusterName, gvk.Kind, "success").Inc()
 			cs.logger.Info("Created resource",
 				zap.String("kind", gvk.Kind),
 				zap.String("name", unstructuredObj.GetName()),
@@ -316,6 +342,7 @@ func (cs *ClientSet) applyYAMLData(ctx context.Context, data []byte, sourceName 
 			// Resource exists, update it (using simple update for MVP)
 			_, updateErr := dr.Update(ctx, unstructuredObj, metav1.UpdateOptions{})
 			if updateErr != nil {
+				metrics.K8sApplyTotal.WithLabelValues(appName, clusterName, gvk.Kind, "failure").Inc()
 				cs.logger.Error("Failed to update resource",
 					zap.String("kind", gvk.Kind),
 					zap.String("name", unstructuredObj.GetName()),
@@ -324,15 +351,26 @@ func (cs *ClientSet) applyYAMLData(ctx context.Context, data []byte, sourceName 
 				applyErrors = append(applyErrors, fmt.Errorf("failed to update %s %s/%s from %s: %w", gvk.Kind, unstructuredObj.GetNamespace(), unstructuredObj.GetName(), sourceName, updateErr))
 				continue
 			}
+			metrics.K8sApplyTotal.WithLabelValues(appName, clusterName, gvk.Kind, "success").Inc()
 			cs.logger.Info("Updated resource",
 				zap.String("kind", gvk.Kind),
 				zap.String("name", unstructuredObj.GetName()),
 				zap.String("namespace", unstructuredObj.GetNamespace()))
 		}
+
+		appliedResources = append(appliedResources, ResourceMetadata{
+			Group:     gvk.Group,
+			Version:   gvk.Version,
+			Kind:      gvk.Kind,
+			Namespace: unstructuredObj.GetNamespace(),
+			Name:      unstructuredObj.GetName(),
+		})
 	}
-	return applyErrors
+	return appliedResources, applyErrors
 }
 
+// CheckConnectivity verifies connectivity to the Kubernetes cluster.
+// It uses the Kubernetes clientset to fetch the server version, ensuring the cluster is reachable.
 // CheckConnectivity verifies connectivity to the Kubernetes cluster.
 // It uses the Kubernetes clientset to fetch the server version, ensuring the cluster is reachable.
 func (cs *ClientSet) CheckConnectivity(ctx context.Context) error {
@@ -348,4 +386,80 @@ func (cs *ClientSet) CheckConnectivity(ctx context.Context) error {
 		return fmt.Errorf("failed to get Kubernetes server version: %w", err)
 	}
 	return nil
+}
+
+// GetResourceHealth checks the health of a specific Kubernetes resource.
+// Returns status (Healthy, Progressing, Degraded, Unknown) and a descriptive message.
+func (cs *ClientSet) GetResourceHealth(ctx context.Context, r ResourceMetadata) (string, string, error) {
+	gvk := schema.GroupVersionKind{Group: r.Group, Version: r.Version, Kind: r.Kind}
+	mapping, err := cs.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		return "Unknown", fmt.Sprintf("Failed to get mapping: %v", err), err
+	}
+
+	var dr dynamic.ResourceInterface
+	if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
+		// Security Check: Namespace Restriction
+		if !cs.isNamespaceAllowed(r.Namespace) {
+			return "Unknown", fmt.Sprintf("Namespace %q is not allowed", r.Namespace), fmt.Errorf("namespace %q is not in the allowed list", r.Namespace)
+		}
+		dr = cs.dynamicClient.Resource(mapping.Resource).Namespace(r.Namespace)
+	} else {
+		dr = cs.dynamicClient.Resource(mapping.Resource)
+	}
+
+	obj, err := dr.Get(ctx, r.Name, metav1.GetOptions{})
+	if err != nil {
+		return "Unknown", fmt.Sprintf("Failed to get resource: %v", err), err
+	}
+
+	// Basic health assessment logic based on resource kind
+	switch r.Kind {
+	case "Deployment":
+		status, ok, _ := unstructured.NestedMap(obj.Object, "status")
+		if !ok {
+			return "Progressing", "Waiting for status", nil
+		}
+		replicas, _, _ := unstructured.NestedInt64(status, "replicas")
+		readyReplicas, _, _ := unstructured.NestedInt64(status, "readyReplicas")
+		updatedReplicas, _, _ := unstructured.NestedInt64(status, "updatedReplicas")
+		availableReplicas, _, _ := unstructured.NestedInt64(status, "availableReplicas")
+
+		if availableReplicas >= replicas && readyReplicas >= replicas && updatedReplicas >= replicas {
+			return "Healthy", fmt.Sprintf("%d/%d replicas available", availableReplicas, replicas), nil
+		}
+		return "Progressing", fmt.Sprintf("%d/%d replicas available", availableReplicas, replicas), nil
+
+	case "Service":
+		return "Healthy", "Service created", nil
+
+	case "Pod":
+		status, ok, _ := unstructured.NestedMap(obj.Object, "status")
+		if !ok {
+			return "Progressing", "Waiting for status", nil
+		}
+		phase, _, _ := unstructured.NestedString(status, "phase")
+		if phase == "Running" || phase == "Succeeded" {
+			return "Healthy", "Pod is " + phase, nil
+		}
+		if phase == "Failed" {
+			return "Degraded", "Pod failed", nil
+		}
+		return "Progressing", "Pod is " + phase, nil
+
+	default:
+		return "Healthy", "Resource applied", nil
+	}
+}
+
+func (cs *ClientSet) isNamespaceAllowed(ns string) bool {
+	if len(cs.allowedNamespaces) == 0 {
+		return true
+	}
+	for _, allowed := range cs.allowedNamespaces {
+		if allowed == ns {
+			return true
+		}
+	}
+	return false
 }

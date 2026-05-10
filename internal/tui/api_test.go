@@ -238,8 +238,8 @@ func TestListenForEventsErrorsAndEOF(t *testing.T) {
 			return response(http.StatusOK, ": keepalive\n"), nil
 		})
 		msg := client.listenForEvents(context.Background())()
-		if msg != nil {
-			t.Fatalf("expected nil message, got %#v", msg)
+		if _, ok := msg.(sseDisconnectedMsg); !ok {
+			t.Fatalf("expected sseDisconnectedMsg, got %#v", msg)
 		}
 	})
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -16,9 +17,12 @@ type AppResponse struct {
 	ClusterName         string `json:"cluster_name"`
 	Interval            string `json:"interval"`
 	LastSyncedGitHash   string `json:"last_synced_git_hash"`
+	LatestGitHash       string `json:"latest_git_hash"`
 	Status              string `json:"status"`
 	Message             string `json:"message"`
 	ConsecutiveFailures int    `json:"consecutive_failures"`
+	SyncPolicy          string `json:"sync_policy"`
+	ApprovedGitHash     string `json:"approved_git_hash"`
 }
 
 // ClusterResponse matches the JSON returned by GET /api/v1/clusters
@@ -118,6 +122,20 @@ func (c *apiClient) checkCluster(name string) error {
 	return nil
 }
 
+func (c *apiClient) approveApp(name, commitHash string) error {
+	payload, _ := json.Marshal(map[string]string{"commitHash": commitHash})
+	resp, err := c.client.Post(
+		fmt.Sprintf("%s/api/v1/applications/%s/approve", c.baseURL, name),
+		"application/json",
+		strings.NewReader(string(payload)),
+	)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	return nil
+}
+
 func (c *apiClient) unregisterCluster(name string) error {
 	req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/clusters/%s", c.baseURL, name), nil)
 	if err != nil {
@@ -129,4 +147,31 @@ func (c *apiClient) unregisterCluster(name string) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	return nil
+}
+
+// Event represents an integration event from the server.
+type Event struct {
+	ID     string         `json:"id"`
+	Type   string         `json:"type"`
+	Source string         `json:"source"`
+	Time   time.Time      `json:"time"`
+	Data   map[string]any `json:"data"`
+}
+
+func (c *apiClient) getHistory() ([]Event, error) {
+	resp, err := c.client.Get(fmt.Sprintf("%s/api/v1/events/history", c.baseURL))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned status %d", resp.StatusCode)
+	}
+
+	var history []Event
+	if err := json.NewDecoder(resp.Body).Decode(&history); err != nil {
+		return nil, err
+	}
+	return history, nil
 }

@@ -34,11 +34,13 @@ type Server struct {
 	controller *controller.Controller
 	// stream is an in-memory subscriber sink used for SSE event streaming.
 	stream *events.StreamSink
+	// history is an in-memory ring buffer for recent events.
+	history *events.HistorySink
 }
 
 // NewServer creates a new API server instance.
 // It initializes the Echo instance, sets up middleware, and registers routes.
-func NewServer(logger *zap.Logger, apps *appcore.Applications, clusters *clustercore.Clusters, ctrl *controller.Controller, stream *events.StreamSink) *Server {
+func NewServer(logger *zap.Logger, apps *appcore.Applications, clusters *clustercore.Clusters, ctrl *controller.Controller, stream *events.StreamSink, history *events.HistorySink) *Server {
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
@@ -59,6 +61,7 @@ func NewServer(logger *zap.Logger, apps *appcore.Applications, clusters *cluster
 		clusters:   clusters,
 		controller: ctrl,
 		stream:     stream,
+		history:    history,
 	}
 
 	s.registerRoutes()
@@ -77,6 +80,7 @@ func (s *Server) registerRoutes() {
 	cluster.RegisterRoutes(v1, clusterHandler)
 	if s.stream != nil {
 		v1.GET("/events", s.StreamEvents)
+		v1.GET("/events/history", s.GetEventHistory)
 	}
 
 	s.e.GET("/health", s.HealthCheck)
@@ -166,4 +170,12 @@ func (s *Server) StreamEvents(c echo.Context) error {
 			flusher.Flush()
 		}
 	}
+}
+
+// GetEventHistory returns the recent event history.
+func (s *Server) GetEventHistory(c echo.Context) error {
+	if s.history == nil {
+		return c.NoContent(http.StatusNotImplemented)
+	}
+	return c.JSON(http.StatusOK, s.history.All())
 }

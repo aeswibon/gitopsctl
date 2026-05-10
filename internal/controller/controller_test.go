@@ -268,7 +268,7 @@ func TestController_Notify(t *testing.T) {
 	}
 
 	// This just triggers a goroutine, hard to test without a server but we cover the lines
-	ctrl.notify(testApp)
+	ctrl.notify(testApp, "", "")
 }
 
 func TestController_Emit(t *testing.T) {

@@ -33,4 +33,31 @@ var (
 		},
 		[]string{"app", "cluster"},
 	)
+
+	// AppHealthStatus indicates the actual health of the application's resources (1=Healthy, 0.5=Progressing, 0=Degraded/Error).
+	AppHealthStatus = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "gitopsctl_app_health_status",
+			Help: "Current health status of application resources (1=Healthy, 0.5=Progressing, 0=Degraded/Error)",
+		},
+		[]string{"app", "cluster"},
+	)
+
+	// K8sApplyTotal counts individual Kubernetes resource apply operations.
+	K8sApplyTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "gitopsctl_k8s_apply_total",
+			Help: "Total number of Kubernetes resource apply operations",
+		},
+		[]string{"app", "cluster", "kind", "status"},
+	)
+
+	// GitPullTotal counts git clone/pull operations.
+	GitPullTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "gitopsctl_git_pull_total",
+			Help: "Total number of git clone/pull operations",
+		},
+		[]string{"app", "status"},
+	)
 )

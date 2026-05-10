@@ -12,26 +12,31 @@ import (
 	"aeswibon.com/github/gitopsctl/internal/core/app"
 	"aeswibon.com/github/gitopsctl/internal/core/cluster"
 	gitcore "aeswibon.com/github/gitopsctl/internal/core/git"
+	"aeswibon.com/github/gitopsctl/internal/core/k8s"
 	"go.uber.org/zap"
 )
 
 // mockApplier is a k8sApplier that delegates to a function — no real cluster needed.
 type mockApplier struct {
-	fn func(ctx context.Context, manifestsDir string) []error
+	fn func(ctx context.Context, manifestsDir, appName, clusterName string) ([]k8s.ResourceMetadata, []error)
 }
 
-func (m *mockApplier) ApplyManifests(ctx context.Context, manifestsDir string) []error {
-	return m.fn(ctx, manifestsDir)
+func (m *mockApplier) ApplyManifests(ctx context.Context, manifestsDir, appName, clusterName string) ([]k8s.ResourceMetadata, []error) {
+	return m.fn(ctx, manifestsDir, appName, clusterName)
+}
+
+func (m *mockApplier) GetResourceHealth(ctx context.Context, r k8s.ResourceMetadata) (string, string, error) {
+	return "Healthy", "All good", nil
 }
 
 // filesystemApplier applies no k8s operations but does a real WalkDir so
 // manifest-path tests exercise the actual filesystem error path.
 func filesystemApplier() k8sApplier {
-	return &mockApplier{fn: func(_ context.Context, manifestsDir string) []error {
+	return &mockApplier{fn: func(_ context.Context, manifestsDir, _, _ string) ([]k8s.ResourceMetadata, []error) {
 		if _, err := os.Stat(manifestsDir); err != nil {
-			return []error{err}
+			return nil, []error{err}
 		}
-		return nil
+		return nil, nil
 	}}
 }
 
@@ -160,7 +165,7 @@ func TestPerformSync_NoChangesSetsSynced(t *testing.T) {
 	ctrl.clusters.Add(&cluster.Cluster{Name: "c1"})
 
 	// Same hash + manual trigger = Synced without hitting apply.
-	applier := &mockApplier{fn: func(_ context.Context, _ string) []error { return nil }}
+	applier := &mockApplier{fn: func(_ context.Context, _, _, _ string) ([]k8s.ResourceMetadata, []error) { return nil, nil }}
 	ctrl.performSync(context.Background(), logger, a, workDir, applier, appCfg, "manual")
 	if a.Status != "Synced" {
 		t.Fatalf("expected Synced on no-change manual sync, got %s", a.Status)
