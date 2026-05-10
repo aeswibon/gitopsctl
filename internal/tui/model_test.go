@@ -261,10 +261,10 @@ func TestRenderHelpers(t *testing.T) {
 	if got := m.renderClusterList(40, 10); !strings.Contains(got, "No clusters") {
 		t.Fatalf("unexpected empty cluster list %q", got)
 	}
-	if got := m.renderAppDetail(40); !strings.Contains(got, "Select an application") {
+	if got := m.renderAppDetail(40); !strings.Contains(got, "No matching applications") {
 		t.Fatalf("unexpected empty app detail %q", got)
 	}
-	if got := m.renderClusterDetail(40); !strings.Contains(got, "Select a cluster") {
+	if got := m.renderClusterDetail(40); !strings.Contains(got, "No matching clusters") {
 		t.Fatalf("unexpected empty cluster detail %q", got)
 	}
 
@@ -293,5 +293,76 @@ func TestRenderHelpers(t *testing.T) {
 	}
 	if got := kv("A", "B"); !strings.Contains(got, "A") || !strings.Contains(got, "B") {
 		t.Fatalf("unexpected kv output %q", got)
+	}
+}
+func TestModelFiltering(t *testing.T) {
+	m := NewModel("http://example.test")
+	m.apps = []AppResponse{sampleApp("frontend"), sampleApp("backend"), sampleApp("api")}
+	m.clusters = []ClusterResponse{sampleCluster("prod"), sampleCluster("staging")}
+
+	// Enter filter mode
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if !m.isFiltering {
+		t.Fatal("expected filtering mode to be active")
+	}
+
+	// Filter for "front"
+	for _, r := range "front" {
+		m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if m.filter != "front" {
+		t.Fatalf("expected filter 'front', got %q", m.filter)
+	}
+	if len(m.filteredApps()) != 1 || m.filteredApps()[0].Name != "frontend" {
+		t.Fatalf("expected 1 filtered app 'frontend', got %v", m.filteredApps())
+	}
+
+	// Backspace
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyBackspace})
+	if m.filter != "fron" {
+		t.Fatalf("expected filter 'fron', got %q", m.filter)
+	}
+
+	// Switch to clusters and filter
+	m.state = clustersView
+	m.filter = "st"
+	if len(m.filteredClusters()) != 1 || m.filteredClusters()[0].Name != "staging" {
+		t.Fatalf("expected 1 filtered cluster 'staging', got %v", m.filteredClusters())
+	}
+
+	// Esc to clear
+	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.isFiltering || m.filter != "" {
+		t.Fatal("expected filter to be cleared after Esc")
+	}
+}
+
+func TestModelReconnection(t *testing.T) {
+	m := NewModel("http://example.test")
+	m.width = 100
+	m.height = 30
+
+	// Simulate connection error
+	m = updateModel(t, m, errorMsg(errors.New("connection refused")))
+	if m.retryCount != 1 {
+		t.Fatalf("expected retryCount 1, got %d", m.retryCount)
+	}
+
+	// Ensure Offline banner shows retry info
+	view := m.View()
+	if !strings.Contains(view, "OFFLINE") || !strings.Contains(view, "Retry #1") {
+		t.Fatalf("expected view to contain OFFLINE and Retry #1, got %q", view)
+	}
+
+	// Simulate reconnection message
+	m = updateModel(t, m, reconnectMsg{})
+	if !m.loading {
+		t.Fatal("expected model to be loading after reconnectMsg")
+	}
+
+	// Simulate successful load resets retryCount
+	m = updateModel(t, m, appsLoadedMsg{sampleApp("frontend")})
+	if m.retryCount != 0 {
+		t.Fatalf("expected retryCount 0 after successful load, got %d", m.retryCount)
 	}
 }

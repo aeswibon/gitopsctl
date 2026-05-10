@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,26 +13,38 @@ import (
 	"aeswibon.com/github/gitopsctl/internal/core/app"
 	"aeswibon.com/github/gitopsctl/internal/core/cluster"
 	gitcore "aeswibon.com/github/gitopsctl/internal/core/git"
+	"aeswibon.com/github/gitopsctl/internal/core/k8s"
 	"go.uber.org/zap"
 )
 
 // mockApplier is a k8sApplier that delegates to a function — no real cluster needed.
 type mockApplier struct {
-	fn func(ctx context.Context, manifestsDir string) []error
+	applyFn  func(ctx context.Context, manifestsDir, appName, clusterName string) ([]k8s.ResourceMetadata, []error)
+	healthFn func(ctx context.Context, r k8s.ResourceMetadata) (string, string, error)
 }
 
-func (m *mockApplier) ApplyManifests(ctx context.Context, manifestsDir string) []error {
-	return m.fn(ctx, manifestsDir)
+func (m *mockApplier) ApplyManifests(ctx context.Context, manifestsDir, appName, clusterName string) ([]k8s.ResourceMetadata, []error) {
+	if m.applyFn != nil {
+		return m.applyFn(ctx, manifestsDir, appName, clusterName)
+	}
+	return nil, nil
+}
+
+func (m *mockApplier) GetResourceHealth(ctx context.Context, r k8s.ResourceMetadata) (string, string, error) {
+	if m.healthFn != nil {
+		return m.healthFn(ctx, r)
+	}
+	return "Healthy", "All good", nil
 }
 
 // filesystemApplier applies no k8s operations but does a real WalkDir so
 // manifest-path tests exercise the actual filesystem error path.
 func filesystemApplier() k8sApplier {
-	return &mockApplier{fn: func(_ context.Context, manifestsDir string) []error {
+	return &mockApplier{applyFn: func(_ context.Context, manifestsDir, _, _ string) ([]k8s.ResourceMetadata, []error) {
 		if _, err := os.Stat(manifestsDir); err != nil {
-			return []error{err}
+			return nil, []error{err}
 		}
-		return nil
+		return nil, nil
 	}}
 }
 
@@ -160,7 +173,7 @@ func TestPerformSync_NoChangesSetsSynced(t *testing.T) {
 	ctrl.clusters.Add(&cluster.Cluster{Name: "c1"})
 
 	// Same hash + manual trigger = Synced without hitting apply.
-	applier := &mockApplier{fn: func(_ context.Context, _ string) []error { return nil }}
+	applier := &mockApplier{applyFn: func(_ context.Context, _, _, _ string) ([]k8s.ResourceMetadata, []error) { return nil, nil }}
 	ctrl.performSync(context.Background(), logger, a, workDir, applier, appCfg, "manual")
 	if a.Status != "Synced" {
 		t.Fatalf("expected Synced on no-change manual sync, got %s", a.Status)
@@ -214,5 +227,167 @@ func TestPerformSync_ManifestPathMissingSetsError(t *testing.T) {
 	}
 	if !strings.Contains(a.Message, "no such file or directory") && !strings.Contains(a.Message, "Apply error") {
 		t.Fatalf("unexpected message: %q", a.Message)
+	}
+}
+
+func TestController_CheckHealth(t *testing.T) {
+	logger := zap.NewNop()
+	apps := app.NewApplications()
+	clusters := cluster.NewClusters()
+	ctrl := NewController(logger, apps, clusters)
+
+	application := &app.Application{
+		Name:        "test-app",
+		ClusterName: "c1",
+		Status:      "Synced",
+		AppliedResources: []app.ResourceMetadata{
+			{Kind: "Deployment", Name: "d1", Namespace: "default"},
+		},
+	}
+	apps.Add(application)
+
+	tmpDir, _ := os.MkdirTemp("", "health-test")
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+	appCfg := filepath.Join(tmpDir, "apps.json")
+	if err := os.WriteFile(appCfg, []byte("[]"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Case 1: Resource is Degraded
+	mock := &mockApplier{
+		healthFn: func(ctx context.Context, r k8s.ResourceMetadata) (string, string, error) {
+			return "Degraded", "CrashLoopBackOff", nil
+		},
+	}
+
+	ctrl.checkHealth(context.Background(), logger, application, mock, appCfg)
+	if application.Status != "Degraded" {
+		t.Errorf("expected Degraded status, got %s", application.Status)
+	}
+	if !strings.Contains(application.Message, "CrashLoopBackOff") {
+		t.Errorf("expected message to contain CrashLoopBackOff, got %s", application.Message)
+	}
+
+	// Case 2: Resource is Progressing
+	mock.healthFn = func(ctx context.Context, r k8s.ResourceMetadata) (string, string, error) {
+		return "Progressing", "Wait for replicas", nil
+	}
+	ctrl.checkHealth(context.Background(), logger, application, mock, appCfg)
+	if application.Status != "Progressing" {
+		t.Errorf("expected Progressing status, got %s", application.Status)
+	}
+
+	// Case 3: Resource becomes Healthy
+	mock.healthFn = func(ctx context.Context, r k8s.ResourceMetadata) (string, string, error) {
+		return "Healthy", "Ready", nil
+	}
+	ctrl.checkHealth(context.Background(), logger, application, mock, appCfg)
+	if application.Status != "Healthy" {
+		t.Errorf("expected Healthy status, got %s", application.Status)
+	}
+}
+
+func TestPerformSync_ClusterNotFound(t *testing.T) {
+	logger := zap.NewNop()
+	apps := app.NewApplications()
+	clusters := cluster.NewClusters()
+	ctrl := NewController(logger, apps, clusters)
+
+	repoPath := createLocalRepo(t)
+	defer func() { _ = os.RemoveAll(repoPath) }()
+
+	workDir, _ := os.MkdirTemp("", "sync-no-cluster")
+	defer func() { _ = os.RemoveAll(workDir) }()
+	appCfg := filepath.Join(workDir, "apps.json")
+
+	a := &app.Application{
+		Name:        "a1",
+		RepoURL:     repoPath,
+		Branch:      "master",
+		Path:        ".",
+		ClusterName: "non-existent",
+		Status:      "Pending",
+	}
+	apps.Add(a)
+
+	ctrl.performSync(context.Background(), logger, a, workDir, nil, appCfg, "manual")
+	if a.Status != "Error" || !strings.Contains(a.Message, "not found") {
+		t.Fatalf("expected Cluster not found error, got %s: %s", a.Status, a.Message)
+	}
+}
+
+func TestPerformSync_ManualSyncApproved(t *testing.T) {
+	logger := zap.NewNop()
+	apps := app.NewApplications()
+	clusters := cluster.NewClusters()
+	ctrl := NewController(logger, apps, clusters)
+
+	repoPath := createLocalRepo(t)
+	defer func() { _ = os.RemoveAll(repoPath) }()
+
+	workDir, _ := os.MkdirTemp("", "sync-approved")
+	defer func() { _ = os.RemoveAll(workDir) }()
+	appCfg := filepath.Join(workDir, "apps.json")
+
+	hash, _ := gitcore.GetLatestCommitHash(logger, repoPath)
+
+	a := &app.Application{
+		Name:            "a1",
+		RepoURL:         repoPath,
+		Branch:          "master",
+		Path:            ".",
+		ClusterName:     "c1",
+		SyncPolicy:      "manual",
+		ApprovedGitHash: hash,
+		Status:          "Pending",
+	}
+	apps.Add(a)
+	ctrl.clusters.Add(&cluster.Cluster{Name: "c1", KubeconfigPath: "invalid"})
+
+	mock := &mockApplier{
+		applyFn: func(ctx context.Context, manifestsDir, appName, clusterName string) ([]k8s.ResourceMetadata, []error) {
+			return []k8s.ResourceMetadata{{Kind: "ConfigMap", Name: "sample"}}, nil
+		},
+	}
+
+	ctrl.performSync(context.Background(), logger, a, workDir, mock, appCfg, "manual")
+	if a.Status != "Synced" {
+		t.Fatalf("expected Synced for approved manual sync, got %s", a.Status)
+	}
+}
+
+func TestPerformSync_ApplyFailure(t *testing.T) {
+	logger := zap.NewNop()
+	apps := app.NewApplications()
+	clusters := cluster.NewClusters()
+	ctrl := NewController(logger, apps, clusters)
+
+	repoPath := createLocalRepo(t)
+	defer func() { _ = os.RemoveAll(repoPath) }()
+
+	workDir, _ := os.MkdirTemp("", "sync-apply-fail")
+	defer func() { _ = os.RemoveAll(workDir) }()
+	appCfg := filepath.Join(workDir, "apps.json")
+
+	a := &app.Application{
+		Name:        "a1",
+		RepoURL:     repoPath,
+		Branch:      "master",
+		Path:        ".",
+		ClusterName: "c1",
+		Status:      "Pending",
+	}
+	apps.Add(a)
+	ctrl.clusters.Add(&cluster.Cluster{Name: "c1"})
+
+	mock := &mockApplier{
+		applyFn: func(ctx context.Context, manifestsDir, appName, clusterName string) ([]k8s.ResourceMetadata, []error) {
+			return nil, []error{fmt.Errorf("apply failed")}
+		},
+	}
+
+	ctrl.performSync(context.Background(), logger, a, workDir, mock, appCfg, "manual")
+	if a.Status != "Error" || !strings.Contains(a.Message, "apply failed") {
+		t.Fatalf("expected Apply error, got %s: %s", a.Status, a.Message)
 	}
 }

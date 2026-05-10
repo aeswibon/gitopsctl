@@ -40,12 +40,18 @@ type Response struct {
 	Interval string `json:"interval"`
 	// LastSyncedGitHash is the last commit hash that was successfully synced from the Git repository.
 	LastSyncedGitHash string `json:"last_synced_git_hash"`
+	// LatestGitHash is the most recent commit hash discovered by the controller.
+	LatestGitHash string `json:"latest_git_hash"`
 	// Status indicates the current status of the application (e.g., "active", "inactive", "error").
 	Status string `json:"status"`
 	// Message provides additional information about the application's status, such as error messages or warnings.
 	Message string `json:"message"`
 	// ConsecutiveFailures counts the number of consecutive sync failures for the application.
 	ConsecutiveFailures int `json:"consecutive_failures"`
+	// SyncPolicy determines how changes are applied ("auto" or "manual").
+	SyncPolicy string `json:"sync_policy"`
+	// ApprovedGitHash is the commit hash currently approved for deployment in manual sync mode.
+	ApprovedGitHash string `json:"approved_git_hash"`
 	// LastUpdated is the timestamp of the last update to the application's status.
 	LastUpdated string `json:"last_updated"`
 }
@@ -65,8 +71,12 @@ func ConvertToResponse(app *appcore.Application) Response {
 		Path:                app.Path,
 		ClusterName:         app.ClusterName,
 		Interval:            app.Interval,
+		LastSyncedGitHash:   app.LastSyncedGitHash,
+		LatestGitHash:       app.LatestGitHash,
 		Status:              app.Status,
 		Message:             app.Message,
 		ConsecutiveFailures: app.ConsecutiveFailures,
+		SyncPolicy:          app.SyncPolicy,
+		ApprovedGitHash:     app.ApprovedGitHash,
 	}
 }

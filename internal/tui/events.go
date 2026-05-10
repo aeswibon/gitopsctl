@@ -3,6 +3,7 @@ package tui
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -28,9 +29,11 @@ func (c *apiClient) listenForEvents(ctx context.Context) tea.Cmd {
 		for scanner.Scan() {
 			line := scanner.Text()
 			if strings.HasPrefix(line, "data:") {
-				// We got an event! Trigger a refresh.
-				// In a more complex TUI, we would parse the JSON and update only the relevant item.
-				// For now, a full refresh is safer and easier.
+				data := strings.TrimPrefix(line, "data:")
+				var ev Event
+				if err := json.Unmarshal([]byte(data), &ev); err == nil {
+					return eventReceivedMsg{Event: ev}
+				}
 				return eventReceivedMsg{}
 			}
 		}
@@ -38,8 +41,12 @@ func (c *apiClient) listenForEvents(ctx context.Context) tea.Cmd {
 		if err := scanner.Err(); err != nil {
 			return errorMsg(err)
 		}
-		return nil
+		return sseDisconnectedMsg{}
 	}
 }
 
-type eventReceivedMsg struct{}
+type sseDisconnectedMsg struct{}
+
+type eventReceivedMsg struct {
+	Event Event
+}

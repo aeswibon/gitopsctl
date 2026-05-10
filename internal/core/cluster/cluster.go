@@ -35,6 +35,9 @@ type Cluster struct {
 	Message string `json:"message,omitempty"`
 	// LastCheckedAt is the last time the cluster was checked for status updates.
 	LastCheckedAt time.Time `json:"lastCheckedAt,omitempty"`
+	// AllowedNamespaces is an optional list of namespaces the controller is restricted to for this cluster.
+	// If empty, no namespace restriction is enforced by the controller.
+	AllowedNamespaces []string `json:"allowedNamespaces,omitempty"`
 }
 
 // Clusters represents a thread-safe collection of Cluster objects.

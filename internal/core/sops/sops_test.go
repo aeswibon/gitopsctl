@@ -53,9 +53,12 @@ func TestDecrypt_PlainFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := Decrypt(tmpFile)
+	got, wasEncrypted, err := Decrypt(tmpFile)
 	if err != nil {
 		t.Errorf("Decrypt() error = %v", err)
+	}
+	if wasEncrypted {
+		t.Error("Decrypt() reported wasEncrypted=true for plain file")
 	}
 	if string(got) != content {
 		t.Errorf("Decrypt() got = %s, want %s", string(got), content)
@@ -76,7 +79,7 @@ func TestDecryptReader_Plain(t *testing.T) {
 }
 
 func TestDecrypt_FileNotFound(t *testing.T) {
-	_, err := Decrypt("non-existent-file")
+	_, _, err := Decrypt("non-existent-file")
 	if err == nil {
 		t.Error("Expected error for non-existent file, got nil")
 	}
@@ -95,7 +98,7 @@ func TestDecrypt_EncryptedInvalidDataReturnsError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Decrypt(tmpFile); err == nil {
+	if _, _, err := Decrypt(tmpFile); err == nil {
 		t.Fatal("expected decrypt error for invalid encrypted payload")
 	}
 }

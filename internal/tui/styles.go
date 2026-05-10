@@ -105,6 +105,12 @@ var (
 
 	// ── Error ─────────────────────────────────────────────────────
 	ErrStyle = lipgloss.NewStyle().Foreground(red)
+
+	OfflineBanner = lipgloss.NewStyle().
+			Background(red).
+			Foreground(white).
+			Bold(true).
+			Padding(0, 2)
 )
 
 // StatusChip returns a styled status indicator.

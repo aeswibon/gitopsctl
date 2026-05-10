@@ -16,7 +16,7 @@ func TestServer_HealthCheck(t *testing.T) {
 	apps := appcore.NewApplications()
 	clusters := clustercore.NewClusters()
 	ctrl := &controller.Controller{} // Mock/minimal controller
-	server := NewServer(logger, apps, clusters, ctrl, nil)
+	server := NewServer(logger, apps, clusters, ctrl, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
@@ -39,7 +39,7 @@ func TestServer_Metrics(t *testing.T) {
 	apps := appcore.NewApplications()
 	clusters := clustercore.NewClusters()
 	ctrl := &controller.Controller{}
-	server := NewServer(logger, apps, clusters, ctrl, nil)
+	server := NewServer(logger, apps, clusters, ctrl, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	rec := httptest.NewRecorder()

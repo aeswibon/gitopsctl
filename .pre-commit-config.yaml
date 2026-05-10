@@ -16,7 +16,6 @@ repos:
         args: [--timeout=5m]
         pass_filenames: false
 
-
   - repo: local
     hooks:
       - id: go-fmt
@@ -41,7 +40,7 @@ repos:
 
       - id: go-test-coverage
         name: go test coverage
-        entry: bash -c 'go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | grep total | awk "{print \$3}" | sed "s/%//" | awk "{if (\$1 < 80.0) exit 1}"'
+        entry: bash -c 'go clean -testcache && go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | grep total | awk "{print \$3}" | sed "s/%//" | awk "{if (\$1 < 80.0) exit 1}"'
         language: system
         pass_filenames: false
 

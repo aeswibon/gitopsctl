@@ -17,11 +17,12 @@ import (
 
 var (
 	// Flags for register-cluster command
-	clusterRegName        string // Name of the cluster
-	clusterKubeconfigPath string // Path to kubeconfig file
-	forceCluster          bool   // Force overwrite existing cluster
-	dryRunCluster         bool   // Preview registration without applying
-	testConnection        bool   // Test cluster connectivity during registration
+	clusterRegName        string   // Name of the cluster
+	clusterKubeconfigPath string   // Path to kubeconfig file
+	forceCluster          bool     // Force overwrite existing cluster
+	dryRunCluster         bool     // Preview registration without applying
+	testConnection        bool     // Test cluster connectivity during registration
+	allowedNamespaces     []string // List of allowed namespaces
 )
 
 // clusterRegistrationConfig holds validated configuration for cluster registration
@@ -29,6 +30,7 @@ type clusterRegistrationConfig struct {
 	name           string
 	kubeconfigPath string
 	resolvedPath   string
+	namespaces     []string
 }
 
 var registerClusterCmd = &cobra.Command{
@@ -133,6 +135,7 @@ func validateAndNormalizeClusterInput() (*clusterRegistrationConfig, error) {
 		return nil, fmt.Errorf("failed to resolve kubeconfig path: %w", err)
 	}
 	config.resolvedPath = absPath
+	config.namespaces = allowedNamespaces
 	return config, nil
 }
 
@@ -177,11 +180,12 @@ func createClusterConfig(config *clusterRegistrationConfig) *clustercore.Cluster
 	}
 
 	return &clustercore.Cluster{
-		Name:           config.name,
-		KubeconfigPath: config.resolvedPath,
-		RegisteredAt:   time.Now(),
-		Status:         status,
-		Message:        message,
+		Name:              config.name,
+		KubeconfigPath:    config.resolvedPath,
+		RegisteredAt:      time.Now(),
+		Status:            status,
+		Message:           message,
+		AllowedNamespaces: config.namespaces,
 	}
 }
 
@@ -198,6 +202,9 @@ func displayDryRunClusterSummary(newCluster *clustercore.Cluster, isUpdate bool)
 	fmt.Printf("  Kubeconfig:  %s\n", newCluster.KubeconfigPath)
 	fmt.Printf("  Status:      %s\n", newCluster.Status)
 	fmt.Printf("  Message:     %s\n", newCluster.Message)
+	if len(newCluster.AllowedNamespaces) > 0 {
+		fmt.Printf("  Allowed NS:  %s\n", strings.Join(newCluster.AllowedNamespaces, ", "))
+	}
 	fmt.Printf("\nTo apply these changes, run the command again without --dry-run\n")
 
 	return nil
@@ -229,6 +236,9 @@ func saveAndConfirmCluster(newCluster *clustercore.Cluster, isUpdate bool) error
 	fmt.Printf("Configuration:\n")
 	fmt.Printf("  Kubeconfig: %s\n", newCluster.KubeconfigPath)
 	fmt.Printf("  Status:     %s\n", newCluster.Status)
+	if len(newCluster.AllowedNamespaces) > 0 {
+		fmt.Printf("  Allowed NS: %s\n", strings.Join(newCluster.AllowedNamespaces, ", "))
+	}
 
 	fmt.Printf("\nNext steps:\n")
 	fmt.Printf("  • List clusters: gitopsctl list-clusters\n")
@@ -260,6 +270,7 @@ func init() {
 	registerClusterCmd.Flags().BoolVar(&forceCluster, "force", false, "Force overwrite existing cluster")
 	registerClusterCmd.Flags().BoolVar(&dryRunCluster, "dry-run", false, "Preview registration without applying changes")
 	registerClusterCmd.Flags().BoolVar(&testConnection, "test", false, "Test cluster connectivity during registration")
+	registerClusterCmd.Flags().StringSliceVar(&allowedNamespaces, "allowed-namespaces", []string{}, "Comma-separated list of namespaces this cluster is restricted to")
 
 	_ = registerClusterCmd.MarkFlagRequired("name")
 	_ = registerClusterCmd.RegisterFlagCompletionFunc("kubeconfig", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {

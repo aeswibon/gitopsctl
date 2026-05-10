@@ -51,7 +51,8 @@ Phase 2: optionally emit integration events (JSONL file and/or HTTP webhook) for
 		var ctrlOpts []controller.Option
 		var sinks []events.Sink
 		streamSink := events.NewStreamSink()
-		sinks = append(sinks, streamSink) // Always available for /api/v1/events SSE.
+		historySink := events.NewHistorySink(100)
+		sinks = append(sinks, streamSink, historySink) // Available for live stream and history.
 		if eventsFile != "" {
 			fs, err := events.NewFileSink(eventsFile)
 			if err != nil {
@@ -76,7 +77,7 @@ Phase 2: optionally emit integration events (JSONL file and/or HTTP webhook) for
 			zap.Bool("webhook_sink", eventsWebhookURL != ""))
 
 		ctrl := controller.NewController(logger, apps, clusters, ctrlOpts...)
-		apiServer := api.NewServer(logger, apps, clusters, ctrl, streamSink)
+		apiServer := api.NewServer(logger, apps, clusters, ctrl, streamSink, historySink)
 
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)

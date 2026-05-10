@@ -73,11 +73,26 @@ type Application struct {
 	// This is used when the SyncPolicy is set to "manual".
 	ApprovedGitHash string `json:"approvedGitHash,omitempty"`
 
+	// LatestGitHash is the most recent commit hash discovered by the controller.
+	LatestGitHash string `json:"latestGitHash,omitempty"`
+
 	// WebhookURL is an optional endpoint to send sync notifications to.
 	WebhookURL string `json:"webhookUrl,omitempty"`
 
 	// WebhookSecret is an optional secret to sign webhook payloads.
 	WebhookSecret string `json:"webhookSecret,omitempty"`
+
+	// AppliedResources tracks the Kubernetes resources applied for this application.
+	AppliedResources []ResourceMetadata `json:"appliedResources,omitempty"`
+}
+
+// ResourceMetadata matches the one in internal/core/k8s to avoid circular imports.
+type ResourceMetadata struct {
+	Group     string `json:"group"`
+	Version   string `json:"version"`
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
 }
 
 // Applications represents a collection of Application objects.
