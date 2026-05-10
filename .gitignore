@@ -3,3 +3,4 @@ gitopsctl
 .tmp_gitopsctl*
 dist/
 coverage.out
+coverage.html
