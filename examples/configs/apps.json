@@ -1,29 +1,13 @@
 [
   {
     "name": "nginx-demo",
-    "repoUrl": "https://github.com/aeswibon/gitopsctl.git",
-    "branch": "documentation-and-examples",
+    "repoURL": "https://github.com/aeswibon/gitopsctl.git",
+    "branch": "main",
     "path": "examples/manifests",
     "clusterName": "local-dev",
+    "interval": "30s",
     "syncPolicy": "auto",
-    "pollingInterval": "30s"
-  },
-  {
-    "name": "redis-stack",
-    "repoUrl": "https://github.com/aeswibon/gitopsctl.git",
-    "branch": "documentation-and-examples",
-    "path": "examples/manifests",
-    "clusterName": "staging-cluster",
-    "syncPolicy": "manual",
-    "pollingInterval": "1m0s"
-  },
-  {
-    "name": "auth-service",
-    "repoUrl": "https://github.com/aeswibon/gitopsctl.git",
-    "branch": "documentation-and-examples",
-    "path": "examples/manifests",
-    "clusterName": "prod-cluster",
-    "syncPolicy": "auto",
-    "pollingInterval": "5m0s"
+    "status": "Pending",
+    "message": "Example application registered, awaiting first sync"
   }
 ]

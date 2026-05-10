@@ -1,55 +1,104 @@
 # Installation
 
-GitOpsCTL is a single binary written in Go. You can install it using several methods.
+GitOpsCTL is distributed as a single Go binary and can also run in a container.
 
-## Pre-built Binaries
+## Requirements
 
-The easiest way to install GitOpsCTL is to download the pre-built binary for your platform from the [Releases](https://github.com/aeswibon/gitopsctl/releases) page.
+- Go 1.25 or newer when building from source.
+- `git` available on the machine running the controller.
+- Network access to the target Git repositories.
+- A kubeconfig that can reach each target Kubernetes cluster.
+- Optional: SOPS provider tooling or credentials when using encrypted manifests.
 
-1. Download the archive for your OS and architecture (e.g., `gitopsctl_Darwin_arm64.tar.gz` for Apple Silicon).
-2. Extract the archive.
-3. Move the `gitopsctl` binary to a directory in your `PATH` (e.g., `/usr/local/bin`).
+## Prebuilt Binary
 
-## Using Go
+Download a release archive from the [GitHub Releases](https://github.com/aeswibon/gitopsctl/releases) page.
 
-If you have Go 1.25 or later installed, you can install GitOpsCTL directly:
+```bash
+tar -xzf gitopsctl_<OS>_<ARCH>.tar.gz
+chmod +x gitopsctl
+sudo mv gitopsctl /usr/local/bin/gitopsctl
+gitopsctl --help
+```
+
+Use the archive that matches your platform, for example Darwin arm64 for Apple Silicon macOS or Linux amd64 for most x86 Linux hosts.
+
+## Install With Go
 
 ```bash
 go install aeswibon.com/github/gitopsctl@latest
 ```
 
-## Using Docker
+Make sure your Go binary directory is on `PATH`:
 
-You can run GitOpsCTL as a Docker container. This is useful for CI/CD environments or if you don't want to install Go locally.
+```bash
+export PATH="$(go env GOPATH)/bin:$PATH"
+gitopsctl --help
+```
+
+## Build From Source
+
+```bash
+git clone https://github.com/aeswibon/gitopsctl.git
+cd gitopsctl
+go build -o gitopsctl main.go
+./gitopsctl --help
+```
+
+Run tests:
+
+```bash
+go test ./...
+```
+
+Run coverage:
+
+```bash
+go test ./... -coverprofile=coverage.out
+go tool cover -func=coverage.out
+```
+
+## Docker
+
+Pull the image:
 
 ```bash
 docker pull ghcr.io/aeswibon/gitopsctl:latest
 ```
 
-To run it:
+Run the controller with local configs and kubeconfig mounted:
 
 ```bash
-docker run -it -v ~/.kube/config:/root/.kube/config -v $(pwd)/configs:/app/configs ghcr.io/aeswibon/gitopsctl:latest start
+docker run --rm -it \
+  -v "$HOME/.kube/config:/root/.kube/config:ro" \
+  -v "$PWD/configs:/app/configs" \
+  -p 8080:8080 \
+  ghcr.io/aeswibon/gitopsctl:latest \
+  start --api-address 0.0.0.0:8080
 ```
 
-## Homebrew (macOS/Linux)
+Notes:
 
-*Coming soon!*
+- `kubeconfigPath` inside `configs/clusters.json` must match the path inside the container, such as `/root/.kube/config`.
+- Mount SOPS keys or cloud credentials when encrypted manifests need decryption.
+- Mount `configs/` as writable because GitOpsCTL persists status back to JSON files.
 
-## Building from Source
+## Shell Completion
 
-To build GitOpsCTL from source:
+Cobra can generate completion scripts if enabled in the binary. Check the current command help:
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/aeswibon/gitopsctl.git
-   cd gitopsctl
-   ```
-2. Build the binary:
-   ```bash
-   go build -o gitopsctl main.go
-   ```
-3. (Optional) Run tests:
-   ```bash
-   go test ./...
-   ```
+```bash
+gitopsctl completion --help
+```
+
+If completion is not present in your build, use normal shell history and aliases until completion support is added.
+
+## Verify Installation
+
+```bash
+gitopsctl --help
+gitopsctl register-cluster --help
+gitopsctl start --help
+```
+
+Then continue with [Getting Started](getting-started.md).

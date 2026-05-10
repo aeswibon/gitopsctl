@@ -1,47 +1,82 @@
-# Terminal UI (Dashboard)
+# Terminal Dashboard
 
-GitOpsCTL features a premium Terminal User Interface (TUI) built with Bubble Tea and Lipgloss. It provides a real-time overview of your GitOps state without leaving your terminal.
+The dashboard is an interactive terminal UI built with Bubble Tea and Lipgloss. It connects to the GitOpsCTL API server and provides a live view of applications and clusters.
 
-## Opening the Dashboard
+## Start the Dashboard
+
+Start the controller first:
 
 ```bash
-gitopsctl dashboard --api-url http://localhost:8080
+gitopsctl start --api-address :8080
 ```
 
-## Key Views
+Open the dashboard in another terminal:
 
-### 1. Applications View
-Displays a list of all registered applications, their current status (Synced, OutOfSync, Error, etc.), the last synced Git hash, and health indicators.
+```bash
+gitopsctl dashboard --api-url http://127.0.0.1:8080
+```
 
-### 2. Clusters View
-Displays the status of target clusters, including connectivity health and server version information.
+## Views
 
-### 3. Activity Logs
-A live stream of integration events, including sync starts, successes, failures, and health changes.
+### Applications
 
-## Interactions
+Shows registered applications, current sync status, cluster assignment, interval, commit hash, failure count, and message.
+
+Common statuses:
+
+- `Synced`: Last discovered/approved commit was applied.
+- `Healthy`: Applied resources are currently healthy.
+- `Progressing`: Applied resources are still converging.
+- `Degraded`: At least one applied resource is unhealthy.
+- `OutOfSync`: A newer commit exists but has not been applied, usually because manual approval is required.
+- `Pending`: App is registered but has not completed reconciliation.
+- `Error`: Git, render, Kubernetes, or policy failure occurred.
+- `Stopped`: Reconciliation stopped because the controller shut down or the app was stopped.
+
+### Clusters
+
+Shows registered clusters, kubeconfig path, connectivity status, last check time, and status message.
+
+Common statuses:
+
+- `Active`: Cluster connectivity check succeeded.
+- `Unreachable`: API server connection or discovery failed.
+- `Pending`: Cluster is registered and awaiting validation.
+- `Error`: Client creation or configuration failed.
+
+## Keyboard Controls
 
 | Key | Action |
 |-----|--------|
-| `tab` / `shift+tab` | Switch between Applications, Clusters, and Activity views. |
-| `up` / `down` | Navigate through lists. |
-| `s` | Manually trigger a synchronization for the selected application. |
-| `a` | Approve a pending commit for manual sync policy. |
-| `u` | Unregister the selected application. |
-| `r` | Force refresh data. |
-| `/` | Filter the list of applications or clusters. |
-| `esc` | Clear filter or cancel action. |
-| `q` / `ctrl+c` | Exit the dashboard. |
+| `tab`, `shift+tab` | Switch between applications and clusters. |
+| `up`, `k` | Move selection up. |
+| `down`, `j` | Move selection down. |
+| `r` | Refresh app and cluster data. |
+| `s` | Request sync for selected application. |
+| `c` | Request health check for selected cluster. |
+| `u` | Unregister selected application or cluster. |
+| `y` | Confirm pending action. |
+| `n`, `esc` | Cancel pending action. |
+| `q`, `ctrl+c` | Quit. |
 
-## Real-time Updates
+## Live Updates
 
-The dashboard uses Server-Sent Events (SSE) to receive live updates from the controller. If the connection is lost, the dashboard will automatically attempt to reconnect.
+The dashboard starts by fetching application and cluster lists through the REST API. It then listens for Server-Sent Events and refreshes when the controller emits changes.
 
-## Visual Indicators
+If the dashboard cannot connect:
 
-- **Synced** (Green): Git state matches cluster state.
-- **OutOfSync** (Yellow): New commits are available in Git but not yet applied.
-- **Error** (Red): A failure occurred during synchronization or connection.
-- **Healthy** (Green Check): All underlying Kubernetes resources are ready.
-- **Progressing** (Blue): Resources are being created or updated (e.g., rolling update).
-- **Degraded** (Red Cross): One or more resources are in an unhealthy state (e.g., CrashLoopBackOff).
+1. Confirm the controller is running.
+2. Confirm `--api-url` matches the controller `--api-address`.
+3. Try `curl http://127.0.0.1:8080/health`.
+4. Check firewall or container port mappings.
+
+## When to Use CLI Instead
+
+The dashboard is ideal for live operations. Use CLI commands for scripts, CI, and repeatable workflows:
+
+```bash
+gitopsctl status-apps
+gitopsctl sync-app --name nginx-demo
+gitopsctl approve-app --name nginx-demo --commit <commit-hash>
+gitopsctl check-cluster --name local-dev
+```

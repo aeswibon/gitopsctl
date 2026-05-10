@@ -1,49 +1,98 @@
 # Observability
 
-GitOpsCTL provides comprehensive observability through Prometheus metrics, persistent audit logs, and customizable webhooks.
+GitOpsCTL exposes runtime state through CLI status commands, the dashboard, Prometheus metrics, Server-Sent Events, JSONL audit logs, and HTTP webhooks.
+
+## Status Commands
+
+```bash
+gitopsctl list-apps
+gitopsctl status-apps
+gitopsctl list-clusters
+gitopsctl status-clusters
+```
+
+API-backed commands need a running controller:
+
+```bash
+gitopsctl --api-url http://127.0.0.1:8080 sync-app --name nginx-demo
+gitopsctl --api-url http://127.0.0.1:8080 check-cluster --name local-dev
+```
+
+## Dashboard
+
+```bash
+gitopsctl dashboard --api-url http://127.0.0.1:8080
+```
+
+The dashboard reads app and cluster data from the REST API and refreshes on SSE events.
 
 ## Prometheus Metrics
 
-GitOpsCTL exposes a Prometheus-compatible `/metrics` endpoint on the API server (default port `:8080`).
-
-### Key Metrics
-
-| Metric Name | Type | Labels | Description |
-|-------------|------|--------|-------------|
-| `gitopsctl_app_sync_total` | Counter | `app`, `cluster`, `status` | Total sync attempts. |
-| `gitopsctl_cluster_status` | Gauge | `cluster` | 1 for Healthy, 0 for Error. |
-| `gitopsctl_app_health_status` | Gauge | `app`, `cluster` | 1=Healthy, 0.5=Progressing, 0=Degraded. |
-| `gitopsctl_k8s_apply_total` | Counter | `app`, `cluster`, `kind`, `status` | Individual resource apply operations. |
-| `gitopsctl_git_pull_total` | Counter | `app`, `status` | Git clone/pull operations. |
-| `gitopsctl_app_sync_duration_seconds` | Histogram | `app`, `cluster` | Time taken for successful syncs. |
-
-## Audit Logs (JSONL)
-
-You can enable persistent audit logs by providing the `--events-file` flag when starting the controller. Every significant event is appended to this file as a JSON line.
+The API server exposes Prometheus metrics on the same listen address as the REST API.
 
 ```bash
-gitopsctl start --events-file /var/log/gitopsctl/audit.jsonl
+curl http://127.0.0.1:8080/metrics
 ```
 
-Example log entry:
-```json
-{"type":"io.gitopsctl.app.sync.succeeded","time":"2023-10-27T10:00:00Z","data":{"app":"my-app","cluster":"prod","hash":"a1b2c3d"}}
+Key metrics:
+
+| Metric | Type | Labels | Meaning |
+|--------|------|--------|---------|
+| `gitopsctl_app_sync_total` | Counter | `app`, `cluster`, `status` | Application sync attempts by result. |
+| `gitopsctl_cluster_status` | Gauge | `cluster` | `1` for reachable, `0` for unreachable/error. |
+| `gitopsctl_app_sync_duration_seconds` | Histogram | `app`, `cluster` | Successful sync duration. |
+| `gitopsctl_app_health_status` | Gauge | `app`, `cluster` | `1` healthy, `0.5` progressing, `0` degraded/error. |
+| `gitopsctl_k8s_apply_total` | Counter | `app`, `cluster`, `kind`, `status` | Kubernetes resource apply operations. |
+| `gitopsctl_git_pull_total` | Counter | `app`, `status` | Git clone/pull operations. |
+
+## JSONL Event Log
+
+Enable file events:
+
+```bash
+gitopsctl start --events-file configs/events.jsonl
 ```
+
+Follow events:
+
+```bash
+gitopsctl tail-events --file configs/events.jsonl --from-start
+```
+
+Each line is a JSON event envelope. This is useful for local audit trails, ingestion into log pipelines, and debugging reconciliation.
 
 ## Webhooks
 
-GitOpsCTL can POST integration events to an external URL.
+Enable event webhooks:
 
 ```bash
 gitopsctl start \
-  --events-webhook https://api.my-dashboard.com/webhooks \
-  --events-webhook-secret my-hmac-secret
+  --events-webhook https://example.com/gitopsctl/events \
+  --events-webhook-bearer "$TOKEN" \
+  --events-webhook-secret "$SIGNING_SECRET" \
+  --events-webhook-retries 3 \
+  --events-webhook-backoff 1s \
+  --events-webhook-timeout 10s
 ```
 
-### Security
-If `--events-webhook-secret` is provided, GitOpsCTL will include a `X-GitOpsctl-Signature` header in the request. This signature is an HMAC-SHA256 hash of the JSON payload.
+When a signing secret is set, webhook requests include an HMAC SHA-256 signature header. Receivers should verify the signature before trusting the payload.
 
-### Webhook Reliability
-- **Retries**: Configurable via `--events-webhook-retries` (default 2).
-- **Backoff**: Configurable via `--events-webhook-backoff` (default 750ms).
-- **Timeout**: Configurable via `--events-webhook-timeout` (default 12s).
+## Server-Sent Events
+
+The dashboard uses the SSE stream exposed by the API server. You can inspect it manually:
+
+```bash
+curl -N http://127.0.0.1:8080/api/v1/events
+```
+
+SSE is intended for live local or internal consumers. Use JSONL or webhooks for durable external processing.
+
+## Operational Checks
+
+For a healthy controller:
+
+- `/health` responds successfully.
+- `/metrics` returns Prometheus text.
+- `status-clusters` shows recent cluster checks.
+- `status-apps` shows recent sync status and commit hashes.
+- `tail-events` shows controller and sync events when event logging is enabled.

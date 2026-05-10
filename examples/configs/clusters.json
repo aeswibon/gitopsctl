@@ -1,17 +1,9 @@
 [
   {
     "name": "local-dev",
-    "kubeconfigPath": "/Users/aeswibon/.kube/config",
-    "allowedNamespaces": ["default", "demo"]
-  },
-  {
-    "name": "staging-cluster",
-    "kubeconfigPath": "/etc/gitopsctl/kubeconfig-staging",
-    "allowedNamespaces": ["staging", "monitoring", "redis"]
-  },
-  {
-    "name": "prod-cluster",
-    "kubeconfigPath": "/etc/gitopsctl/kubeconfig-prod",
-    "allowedNamespaces": ["prod", "auth"]
+    "kubeconfigPath": "/Users/you/.kube/config",
+    "status": "Pending",
+    "message": "Example cluster registered, update kubeconfigPath before use",
+    "allowedNamespaces": ["demo"]
   }
 ]

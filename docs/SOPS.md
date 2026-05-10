@@ -1,43 +1,117 @@
-# SOPS Secret Management in GitOpsCTL
+# SOPS Secret Management
 
-GitOpsCTL provides native support for [SOPS (Secrets Operations)](https://github.com/getsops/sops), allowing you to store encrypted secrets in your Git repository.
+GitOpsCTL can decrypt SOPS-encrypted manifests before applying them to Kubernetes. This lets you keep encrypted Secrets in Git while applying plaintext only inside the controller's temporary working directory.
 
-## How it Works
+## How Decryption Works
 
-The GitOpsCTL controller automatically detects SOPS-encrypted files in your application's manifest directory. During each synchronization:
+During each application sync:
 
-1. The repository is cloned/pulled to a temporary directory.
-2. The controller walks through the directory and identifies encrypted files (`.yaml`, `.yml`, `.json`).
-3. Files containing SOPS metadata are decrypted in-place using the SOPS library.
-4. The decrypted manifests are then applied to the Kubernetes cluster.
-5. The temporary directory is cleaned up immediately after synchronization.
+1. GitOpsCTL clones or pulls the application repository into a temporary directory.
+2. It walks the configured manifest path.
+3. It attempts SOPS decryption for `.yaml`, `.yml`, and `.json` files.
+4. Files that are encrypted are written back decrypted inside the temporary checkout.
+5. The manifest engine renders Helm, Kustomize, or raw YAML.
+6. Kubernetes resources are applied.
+7. The temporary checkout is removed after reconciliation.
+
+Unencrypted files are left unchanged.
 
 ## Supported Providers
 
-Since GitOpsCTL uses the SOPS library directly, it supports all providers that SOPS supports, provided the environment is configured correctly on the host running the controller:
+GitOpsCTL uses the SOPS library, so it can use the providers supported by SOPS when the controller environment is configured correctly:
 
-- **PGP**: Ensure GPG is installed and the private key is in the keyring.
-- **AWS KMS**: Ensure the controller has AWS credentials with `kms:Decrypt` permissions.
-- **GCP KMS**: Ensure the controller has GCP credentials with `cloudkms.cryptoKeyVersions.useToDecrypt` permissions.
-- **Azure Key Vault**: Ensure the controller is authenticated with Azure.
-- **Age**: Ensure the `SOPS_AGE_KEY_FILE` or `SOPS_AGE_KEY` environment variables are set.
+- Age
+- PGP
+- AWS KMS
+- GCP KMS
+- Azure Key Vault
+- HashiCorp Vault, when configured through SOPS
 
-## Configuration
+## Age Example
 
-No special configuration is needed in GitOpsCTL. As long as your files are encrypted with SOPS and the environment where the controller runs has access to the decryption keys, it will work automatically.
-
-### Example: Encrypting a Secret
+Create a key:
 
 ```bash
-# Encrypt a secret using a PGP key
-sops --encrypt --pgp <YOUR_PGP_FINGERPRINT> secret.yaml > secret.enc.yaml
-
-# Encrypt using AWS KMS
-sops --encrypt --kms <YOUR_KMS_ARN> secret.yaml > secret.enc.yaml
+age-keygen -o age.key
+export SOPS_AGE_KEY_FILE="$PWD/age.key"
 ```
 
-## Security Best Practices
+Create `.sops.yaml`:
 
-1. **Least Privilege**: Ensure the controller's identity (e.g., IAM Role, ServiceAccount) only has the minimum permissions required to decrypt the specific keys used for your GitOps repo.
-2. **Key Rotation**: Regularly rotate your encryption keys. SOPS makes it easy to re-encrypt files with new keys.
-3. **No Plaintext in Git**: Never commit decrypted secrets to your Git repository. Always use SOPS to encrypt them before pushing.
+```yaml
+creation_rules:
+  - path_regex: .*\.sops\.ya?ml$
+    age: age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Encrypt a Kubernetes Secret:
+
+```bash
+kubectl create secret generic demo-secret \
+  --namespace demo \
+  --from-literal=password=change-me \
+  --dry-run=client \
+  -o yaml > secret.yaml
+
+sops --encrypt secret.yaml > secret.sops.yaml
+rm secret.yaml
+```
+
+Commit `secret.sops.yaml` and `.sops.yaml`. Do not commit `age.key`.
+
+Run GitOpsCTL with access to the key:
+
+```bash
+export SOPS_AGE_KEY_FILE=/secure/path/age.key
+gitopsctl start
+```
+
+## PGP Example
+
+```bash
+sops --encrypt --pgp <PGP_FINGERPRINT> secret.yaml > secret.sops.yaml
+```
+
+The controller host must have the matching private key available to GPG.
+
+## Cloud KMS Examples
+
+AWS:
+
+```bash
+sops --encrypt --kms arn:aws:kms:us-east-1:123456789012:key/<key-id> secret.yaml > secret.sops.yaml
+```
+
+GCP:
+
+```bash
+sops --encrypt --gcp-kms projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key> secret.yaml > secret.sops.yaml
+```
+
+Azure:
+
+```bash
+sops --encrypt --azure-kv https://<vault>.vault.azure.net/keys/<key>/<version> secret.yaml > secret.sops.yaml
+```
+
+The controller process must have decrypt permissions through its runtime identity or mounted credentials.
+
+## File Naming
+
+GitOpsCTL does not require a specific encrypted filename suffix. Any `.yaml`, `.yml`, or `.json` file containing SOPS metadata can be decrypted.
+
+Recommended convention:
+
+```text
+secret.sops.yaml
+config.sops.json
+```
+
+## Safety Checklist
+
+- Commit only encrypted secret files.
+- Keep decryption keys and cloud credentials outside the repo.
+- Run the controller with least-privilege decrypt permissions.
+- Use Kubernetes RBAC and `allowedNamespaces` to limit blast radius.
+- Rotate keys and re-encrypt secrets when access changes.
+- Confirm decrypted files are not produced in your working tree before committing.

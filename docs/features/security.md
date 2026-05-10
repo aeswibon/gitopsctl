@@ -1,52 +1,126 @@
 # Security
 
-GitOpsCTL is designed with production security in mind, providing mechanisms to restrict controller access and manage secrets securely.
+GitOpsCTL can manage powerful Kubernetes credentials, so production setups should treat it like any other deployment controller.
 
-## Namespace-Scoped Security
+## Kubeconfig Security
 
-By default, GitOpsCTL can apply manifests to any namespace defined in the kubeconfig. To enforce strict boundaries (e.g., in multi-tenant clusters), you can restrict a cluster's scope to specific namespaces.
+Use a dedicated kubeconfig for GitOpsCTL instead of a personal admin kubeconfig.
 
-### Configuration
+Recommended practices:
 
-Add the `allowedNamespaces` field to your cluster configuration in `configs/clusters.json`:
+- Use a dedicated Kubernetes service account.
+- Grant only the verbs and resources GitOpsCTL needs.
+- Scope permissions by namespace when possible.
+- Store kubeconfig files outside the repository.
+- Mount kubeconfigs read-only in containers.
+- Rotate credentials regularly.
+
+## Namespace Restrictions
+
+GitOpsCTL supports an application-layer namespace guard through the cluster `allowedNamespaces` field.
 
 ```json
-{
-  "name": "staging-cluster",
-  "kubeconfigPath": "/etc/gitopsctl/kubeconfig",
-  "allowedNamespaces": ["staging-apps", "monitoring"]
-}
+[
+  {
+    "name": "staging",
+    "kubeconfigPath": "/etc/gitopsctl/kubeconfig-staging",
+    "allowedNamespaces": ["staging", "monitoring"]
+  }
+]
 ```
 
-### Enforcement
+You can also set it with the CLI:
 
-When `allowedNamespaces` is defined:
-- **Apply Blocked**: Any manifest targeting a namespace not in the list will be rejected before reaching the Kubernetes API.
-- **Health Checks Restricted**: The controller will only assess the health of resources in allowed namespaces.
-- **Resource Discovery**: Cluster-wide resources (like Namespaces or ClusterRoles) are still accessible if needed, but namespaced resources are strictly guarded.
+```bash
+gitopsctl register-cluster \
+  --name staging \
+  --kubeconfig /etc/gitopsctl/kubeconfig-staging \
+  --allowed-namespaces staging,monitoring
+```
 
-## Secret Management (SOPS)
+Behavior:
 
-GitOpsCTL has native support for [Mozilla SOPS](https://github.com/getsops/sops). This allows you to store encrypted secrets directly in Git.
+- Empty `allowedNamespaces` means no GitOpsCTL namespace restriction.
+- Namespaced resources without `metadata.namespace` default to `default`.
+- Namespaced resources outside `allowedNamespaces` are rejected before apply.
+- Cluster-scoped resources are not namespace-scoped, so protect them with Kubernetes RBAC.
 
-### How it Works
+This guard complements Kubernetes RBAC. It does not replace RBAC.
 
-1. **Detection**: GitOpsCTL automatically detects SOPS-encrypted files (YAML/JSON) during the reconciliation loop.
-2. **On-the-fly Decryption**: Files are decrypted in temporary memory before being applied to the cluster.
-3. **Idempotency**: The controller only decrypts files when necessary, ensuring minimal overhead.
+## RBAC Example
 
-### Supported Providers
+A minimal namespace-scoped role depends on the resources your apps manage. Start narrow and expand intentionally.
 
-GitOpsCTL supports all standard SOPS providers:
-- **Cloud KMS**: AWS KMS, GCP KMS, Azure Key Vault.
-- **PGP**: For GPG-based encryption.
-- **Age**: For modern, simple encryption.
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gitopsctl
+  namespace: demo
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gitopsctl-applier
+  namespace: demo
+rules:
+- apiGroups: ["", "apps", "batch", "networking.k8s.io"]
+  resources: ["configmaps", "secrets", "services", "deployments", "statefulsets", "daemonsets", "jobs", "cronjobs", "ingresses"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gitopsctl-applier
+  namespace: demo
+subjects:
+- kind: ServiceAccount
+  name: gitopsctl
+  namespace: demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gitopsctl-applier
+```
 
-For detailed setup instructions, see the [SOPS Documentation](../SOPS.md).
+If your manifests create namespaces or cluster-scoped resources, you need explicit cluster-level RBAC. Keep that separate from normal app deployment credentials when possible.
 
-## Best Practices
+## Secret Management With SOPS
 
-1. **Principle of Least Privilege**: Use a service account with minimal RBAC permissions for the GitOpsCTL controller.
-2. **Kubeconfig Isolation**: If running in Docker or on a server, use a dedicated kubeconfig file that only contains the necessary cluster contexts.
-3. **Audit Monitoring**: Regularly review the [Audit Logs](observability.md) for unauthorized sync attempts or configuration changes.
-4. **Resource Management**: Always define `resources.requests` and `resources.limits` in your manifests to prevent "noisy neighbor" issues and ensure predictable performance.
+GitOpsCTL decrypts SOPS-encrypted `.yaml`, `.yml`, and `.json` files during reconciliation when the runtime environment has access to the required key material.
+
+Supported SOPS providers include:
+
+- Age
+- PGP
+- AWS KMS
+- GCP KMS
+- Azure Key Vault
+- HashiCorp Vault, when configured through SOPS
+
+See [SOPS Secret Management](../SOPS.md) for setup details.
+
+## Webhook Security
+
+For controller event webhooks:
+
+```bash
+gitopsctl start \
+  --events-webhook https://example.com/gitopsctl/events \
+  --events-webhook-bearer "$TOKEN" \
+  --events-webhook-secret "$SIGNING_SECRET"
+```
+
+Use HTTPS endpoints, short-lived tokens when possible, and verify HMAC signatures on the receiver.
+
+## Configuration Hygiene
+
+Do not commit:
+
+- Kubeconfig files.
+- Decrypted SOPS secrets.
+- Webhook signing secrets.
+- Cloud provider credentials.
+- Private Age or PGP keys.
+
+It is safe to commit encrypted SOPS manifests and non-sensitive sample configs.

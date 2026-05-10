@@ -1,4 +1,4 @@
-# GitOpsCTL: A Lightweight GitOps Control Plane for Kubernetes
+# GitOpsCTL
 
 <p align="center">
   <img src="assets/logo.png" alt="GitOpsCTL Logo" width="200" />
@@ -6,61 +6,102 @@
 
 [![Build Status](https://github.com/aeswibon/gitopsctl/actions/workflows/ci.yml/badge.svg)](https://github.com/aeswibon/gitopsctl/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/aeswibon/gitopsctl)](https://goreportcard.com/report/github.com/aeswibon/gitopsctl)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**GitOpsCTL** (GitOps Control Tool) is a minimalistic, self-hosted GitOps controller designed for speed, simplicity, and external management. It keeps your Kubernetes clusters in sync with Git repositories while providing a premium developer experience through a Terminal UI and rich observability.
+GitOpsCTL is a lightweight, external GitOps control plane for Kubernetes. It watches Git repositories, renders plain YAML, Kustomize, or Helm manifests, applies them to registered clusters, and exposes a CLI, REST API, Server-Sent Events stream, Prometheus metrics, JSONL event log, webhooks, and an interactive terminal dashboard.
 
-## ✨ Key Features
+Unlike in-cluster GitOps controllers, GitOpsCTL can run from a laptop, CI runner, bastion host, management VM, or container while managing one or more remote Kubernetes clusters through kubeconfig files.
 
-- **🚀 Lightweight & External**: Run it anywhere (laptop, CI, edge) to manage one or many clusters from the outside.
-- **🛠️ Multi-Engine Support**: Native support for plain **YAML**, **Kustomize**, and **Helm** (rendered in-memory).
-- **📟 Premium TUI**: A beautiful interactive dashboard to monitor and manage your workloads.
-- **🔒 Production Security**: Namespace-scoped restrictions and native **Mozilla SOPS** integration for secrets.
-- **📊 Observability**: High-resolution Prometheus metrics, JSONL audit logs, and customizable webhooks.
-- **⚙️ Manual & Auto Sync**: Choose between fully automated deployments or a human-in-the-loop approval workflow.
+## What It Does
 
----
+- Watches application Git repositories on a configurable interval.
+- Applies raw Kubernetes YAML, Kustomize overlays, or Helm charts.
+- Supports automatic sync and manual approval workflows.
+- Manages multiple clusters from one controller process.
+- Restricts cluster writes to configured namespaces when `allowedNamespaces` is set.
+- Decrypts SOPS-encrypted YAML, YML, and JSON manifests before apply.
+- Tracks app and cluster status in local JSON config files.
+- Exposes an API and TUI for operational commands and live status.
+- Emits integration events to SSE, JSONL files, and HTTP webhooks.
+- Publishes Prometheus metrics for syncs, cluster health, app health, Git pulls, and Kubernetes applies.
 
-## 📖 Documentation
+## Quick Start
 
-- **[🚀 Getting Started](docs/getting-started.md)**: Your first sync in 5 minutes.
-- **[📥 Installation](docs/installation.md)**: Binary, Docker, and Source build guides.
-- **[⚙️ Configuration](docs/configuration.md)**: How to define Applications and Clusters.
-- **[🏗️ Architecture](docs/architecture.md)**: How GitOpsCTL works under the hood.
+Prerequisites:
 
-### Features In-Depth
-- **[📟 Terminal Dashboard](docs/features/tui.md)**: Guide to the interactive TUI.
-- **[🔒 Security & Secrets](docs/features/security.md)**: Namespaces and SOPS setup.
-- **[📊 Observability](docs/features/observability.md)**: Metrics, Audit Logs, and Webhooks.
-
----
-
-## 🏁 Quick Start
+- A Kubernetes cluster reachable through `kubectl`.
+- A kubeconfig file for that cluster.
+- GitOpsCTL installed. See [Installation](docs/installation.md).
 
 ```bash
-# 1. Register a cluster
-gitopsctl register-cluster --name dev --kubeconfig ~/.kube/config
+# 1. Register a cluster.
+gitopsctl register-cluster \
+  --name local-dev \
+  --kubeconfig ~/.kube/config \
+  --allowed-namespaces demo
 
-# 2. Register an app
-gitopsctl register-app --name nginx --repo https://github.com/aeswibon/gitops-examples --path manifests/nginx --cluster dev
+# 2. Register the example nginx app.
+gitopsctl register-apps \
+  --name nginx-demo \
+  --repo https://github.com/aeswibon/gitopsctl.git \
+  --branch main \
+  --path examples/manifests \
+  --cluster local-dev \
+  --interval 30s \
+  --sync-policy auto
 
-# 3. Start the controller
-gitopsctl start
+# 3. Start the controller and API server.
+gitopsctl start --api-address :8080
 
-# 4. Open the dashboard (in another terminal)
-gitopsctl dashboard
+# 4. In another terminal, open the dashboard.
+gitopsctl dashboard --api-url http://127.0.0.1:8080
 ```
 
----
+To start from checked-in sample config files instead of registering resources manually, see [Examples](examples/README.md).
 
-## 🤝 Contributing
+## Documentation
 
-We welcome contributions! GitOpsCTL maintains a high bar for quality:
-- **80% Coverage**: All core packages must maintain 80%+ test coverage.
-- **Pre-commit Hooks**: Enforced linting and testing on every push.
+- [Getting Started](docs/getting-started.md): First local sync, dashboard, status checks, and cleanup.
+- [Installation](docs/installation.md): Install from releases, Go, Docker, or source.
+- [Configuration](docs/configuration.md): Complete `applications.json` and `clusters.json` reference.
+- [CLI Reference](docs/cli-reference.md): Commands, flags, and common workflows.
+- [Architecture](docs/architecture.md): Controller, API, event bus, reconciliation, and storage model.
+- [Terminal Dashboard](docs/features/tui.md): TUI views and keyboard controls.
+- [Security](docs/features/security.md): Kubeconfig hygiene, namespace restrictions, RBAC, and SOPS.
+- [SOPS](docs/SOPS.md): Secret encryption and decryption setup.
+- [Observability](docs/features/observability.md): Metrics, events, JSONL audit logs, webhooks, and SSE.
+- [Troubleshooting](docs/troubleshooting.md): Common setup and runtime failures.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+## Repository Layout
 
-## 📄 License
+```text
+cmd/                    Cobra CLI commands
+internal/api/           REST API, SSE stream, metrics endpoint
+internal/controller/    Reconciliation loop and command dispatch
+internal/core/app/      Application model and persistence
+internal/core/cluster/  Cluster model and persistence
+internal/core/git/      Git clone, pull, and commit helpers
+internal/core/k8s/      Kubernetes client, render, apply, health logic
+internal/events/        Event bus, history, stream, file, webhook sinks
+internal/tui/           Bubble Tea terminal dashboard
+docs/                   User and architecture documentation
+examples/               Runnable sample configs and manifests
+configs/                Default local runtime config directory
+```
 
-GitOpsCTL is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+## Development
+
+```bash
+go test ./...
+go test ./... -coverprofile=coverage.out
+go tool cover -func=coverage.out
+```
+
+The project expects tests for new behavior and keeps coverage high across core packages.
+
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md), run the test suite, and keep docs updated when changing commands, flags, config fields, or user-visible behavior.
+
+## License
+
+Add a repository license file before publishing or packaging GitOpsCTL for external distribution.
