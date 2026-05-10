@@ -430,17 +430,25 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 
 	var client k8sApplier
 
-	// Validate cluster exists before entering the polling loop.
+	// Initialize client if cluster exists
 	if app.ClusterName != "" {
 		c.clusters.RLock()
-		_, clusterExists := c.clusters.Get(app.ClusterName)
+		cl, ok := c.clusters.Get(app.ClusterName)
 		c.clusters.RUnlock()
-		if !clusterExists {
+		if !ok {
 			app.Status = "Error"
 			app.Message = fmt.Sprintf("Cluster '%s' does not exist", app.ClusterName)
 			c.saveAppStatus(app, appConfigFile, true)
 			return
 		}
+		newClient, err := k8s.NewClientSet(c.logger, cl.KubeconfigPath, cl.AllowedNamespaces)
+		if err != nil {
+			app.Status = "Error"
+			app.Message = fmt.Sprintf("Failed to create k8s client: %v", err)
+			c.saveAppStatus(app, appConfigFile, true)
+			return
+		}
+		client = newClient
 	}
 
 	interval := app.PollingInterval
@@ -451,7 +459,7 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 	defer ticker.Stop()
 
 	c.performSync(appCtx, logger, app, repoDir, client, appConfigFile, "initial")
-	if app.Status == "Synced" || app.Status == "Healthy" {
+	if (app.Status == "Synced" || app.Status == "Healthy") && client != nil {
 		c.checkHealth(appCtx, logger, app, client, appConfigFile)
 	}
 
@@ -600,11 +608,12 @@ func (c *Controller) notify(application *app.Application, oldStatus, oldHash str
 }
 
 func (c *Controller) checkHealth(ctx context.Context, logger *zap.Logger, application *app.Application, client k8sApplier, appConfigFile string) {
-	oldStatus := application.Status
-	oldHash := application.LastSyncedGitHash
-	if len(application.AppliedResources) == 0 {
+	if client == nil || len(application.AppliedResources) == 0 {
 		return
 	}
+
+	oldStatus := application.Status
+	oldHash := application.LastSyncedGitHash
 
 	overallStatus := "Healthy"
 	var messages []string
