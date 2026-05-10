@@ -80,7 +80,7 @@ awk '/^  [a-z0-9][a-z0-9-]+[[:space:]]+/ {print $1}' "$TESTROOT/root.help" \
 ./gitopsctl unregister -n demoapp --dry-run >/dev/null
 
 # Cluster registration requires a real kubeconfig; ensure we fail cleanly.
-./gitopsctl register-cluster -n local -k /tmp/nonexistent-kubeconfig --dry-run --force >/dev/null || true
+./gitopsctl register-cluster -n local -k /tmp/nonexistent-kubeconfig --dry-run --force >/dev/null 2>&1 || true
 
 # Start controller briefly and exercise API-backed CLI actions + SSE.
 ./gitopsctl start --api-address 127.0.0.1:18080 --events-file "$TESTROOT/configs/events.jsonl" >"$TESTROOT/start.log" 2>&1 &
