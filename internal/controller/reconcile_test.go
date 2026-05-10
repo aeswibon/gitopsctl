@@ -19,9 +19,11 @@ func TestReconcileApp_ManualSyncTrigger(t *testing.T) {
 	ctrl := NewController(logger, apps, clusters)
 
 	tmpDir, _ := os.MkdirTemp("", "reconcile-test")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 	appCfg := filepath.Join(tmpDir, "apps.json")
-	os.WriteFile(appCfg, []byte("[]"), 0644)
+	if err := os.WriteFile(appCfg, []byte("[]"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	a := &app.Application{
 		Name:            "a1",
@@ -66,9 +68,11 @@ func TestReconcileApp_ContextDone(t *testing.T) {
 	ctrl := NewController(logger, apps, clusters)
 
 	tmpDir, _ := os.MkdirTemp("", "reconcile-ctx-done")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 	appCfg := filepath.Join(tmpDir, "apps.json")
-	os.WriteFile(appCfg, []byte("[]"), 0644)
+	if err := os.WriteFile(appCfg, []byte("[]"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	a := &app.Application{
 		Name:            "a1",

@@ -247,9 +247,11 @@ func TestController_CheckHealth(t *testing.T) {
 	apps.Add(application)
 
 	tmpDir, _ := os.MkdirTemp("", "health-test")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 	appCfg := filepath.Join(tmpDir, "apps.json")
-	os.WriteFile(appCfg, []byte("[]"), 0644)
+	if err := os.WriteFile(appCfg, []byte("[]"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Case 1: Resource is Degraded
 	mock := &mockApplier{
@@ -292,10 +294,10 @@ func TestPerformSync_ClusterNotFound(t *testing.T) {
 	ctrl := NewController(logger, apps, clusters)
 
 	repoPath := createLocalRepo(t)
-	defer os.RemoveAll(repoPath)
+	defer func() { _ = os.RemoveAll(repoPath) }()
 
 	workDir, _ := os.MkdirTemp("", "sync-no-cluster")
-	defer os.RemoveAll(workDir)
+	defer func() { _ = os.RemoveAll(workDir) }()
 	appCfg := filepath.Join(workDir, "apps.json")
 
 	a := &app.Application{
@@ -321,10 +323,10 @@ func TestPerformSync_ManualSyncApproved(t *testing.T) {
 	ctrl := NewController(logger, apps, clusters)
 
 	repoPath := createLocalRepo(t)
-	defer os.RemoveAll(repoPath)
+	defer func() { _ = os.RemoveAll(repoPath) }()
 
 	workDir, _ := os.MkdirTemp("", "sync-approved")
-	defer os.RemoveAll(workDir)
+	defer func() { _ = os.RemoveAll(workDir) }()
 	appCfg := filepath.Join(workDir, "apps.json")
 
 	hash, _ := gitcore.GetLatestCommitHash(logger, repoPath)
@@ -361,10 +363,10 @@ func TestPerformSync_ApplyFailure(t *testing.T) {
 	ctrl := NewController(logger, apps, clusters)
 
 	repoPath := createLocalRepo(t)
-	defer os.RemoveAll(repoPath)
+	defer func() { _ = os.RemoveAll(repoPath) }()
 
 	workDir, _ := os.MkdirTemp("", "sync-apply-fail")
-	defer os.RemoveAll(workDir)
+	defer func() { _ = os.RemoveAll(workDir) }()
 	appCfg := filepath.Join(workDir, "apps.json")
 
 	a := &app.Application{
