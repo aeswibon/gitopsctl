@@ -17,10 +17,10 @@ import (
 
 var (
 	// Flags for register-cluster command
-	clusterRegName        string // Name of the cluster
-	clusterKubeconfigPath string // Path to kubeconfig file
-	forceCluster          bool   // Force overwrite existing cluster
-	dryRunCluster         bool   // Preview registration without applying
+	clusterRegName        string   // Name of the cluster
+	clusterKubeconfigPath string   // Path to kubeconfig file
+	forceCluster          bool     // Force overwrite existing cluster
+	dryRunCluster         bool     // Preview registration without applying
 	testConnection        bool     // Test cluster connectivity during registration
 	allowedNamespaces     []string // List of allowed namespaces
 )
@@ -180,9 +180,9 @@ func createClusterConfig(config *clusterRegistrationConfig) *clustercore.Cluster
 	}
 
 	return &clustercore.Cluster{
-		Name:           config.name,
-		KubeconfigPath: config.resolvedPath,
-		RegisteredAt:   time.Now(),
+		Name:              config.name,
+		KubeconfigPath:    config.resolvedPath,
+		RegisteredAt:      time.Now(),
 		Status:            status,
 		Message:           message,
 		AllowedNamespaces: config.namespaces,

@@ -109,11 +109,11 @@ func NewClientSet(logger *zap.Logger, kubeconfigPath string, allowedNamespaces [
 
 	mapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(discoveryClient))
 	return &ClientSet{
-		logger:         logger,
-		kubeconfigPath: kubeconfigPath,
-		dynamicClient:  dynamicClient,
-		mapper:         mapper,
-		config:         config,
+		logger:            logger,
+		kubeconfigPath:    kubeconfigPath,
+		dynamicClient:     dynamicClient,
+		mapper:            mapper,
+		config:            config,
 		allowedNamespaces: allowedNamespaces,
 	}, nil
 }

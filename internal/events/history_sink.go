@@ -7,11 +7,11 @@ import (
 
 // HistorySink keeps a fixed-size ring buffer of the most recent events in memory.
 type HistorySink struct {
-	mu       sync.RWMutex
-	size     int
-	events   []*Envelope
-	cursor   int
-	count    int
+	mu     sync.RWMutex
+	size   int
+	events []*Envelope
+	cursor int
+	count  int
 }
 
 // NewHistorySink creates a sink that retains up to size events.
