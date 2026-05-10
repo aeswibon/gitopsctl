@@ -49,3 +49,4 @@ For detailed setup instructions, see the [SOPS Documentation](../SOPS.md).
 1. **Principle of Least Privilege**: Use a service account with minimal RBAC permissions for the GitOpsCTL controller.
 2. **Kubeconfig Isolation**: If running in Docker or on a server, use a dedicated kubeconfig file that only contains the necessary cluster contexts.
 3. **Audit Monitoring**: Regularly review the [Audit Logs](observability.md) for unauthorized sync attempts or configuration changes.
+4. **Resource Management**: Always define `resources.requests` and `resources.limits` in your manifests to prevent "noisy neighbor" issues and ensure predictable performance.

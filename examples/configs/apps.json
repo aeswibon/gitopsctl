@@ -1,19 +1,11 @@
 [
   {
     "name": "nginx-demo",
-    "repoUrl": "https://github.com/aeswibon/gitops-examples",
-    "branch": "main",
-    "path": "manifests/nginx",
+    "repoUrl": "https://github.com/aeswibon/gitopsctl.git",
+    "branch": "documentation-and-examples",
+    "path": "examples/manifests",
     "clusterName": "local-cluster",
     "syncPolicy": "auto",
     "pollingInterval": "30s"
-  },
-  {
-    "name": "backend-api",
-    "repoUrl": "https://github.com/aeswibon/gitops-examples",
-    "branch": "develop",
-    "path": "manifests/backend",
-    "clusterName": "staging-cluster",
-    "syncPolicy": "manual"
   }
 ]

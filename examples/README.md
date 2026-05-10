@@ -1,29 +1,34 @@
 # GitOpsCTL Examples
 
-This directory contains examples of how to use GitOpsCTL to manage your Kubernetes applications.
+This directory contains production-ready examples of GitOpsCTL configurations and manifests.
 
-## Quickstart Example: NGINX
+## Structure
 
-To deploy the sample NGINX application in this directory using `gitopsctl`:
+- **`configs/`**: Example `apps.json` and `clusters.json` to bootstrap your setup.
+- **`manifests/`**: Sample Kubernetes resources (Deployments, Services, and SOPS-encrypted Secrets).
 
-1. **Register your local cluster** (e.g. Docker Desktop, OrbStack, Minikube):
+## How to use these examples
+
+The fastest way to see GitOpsCTL in action is to use these pre-defined examples:
+
+1. **Copy the configs**:
    ```bash
-   gitopsctl register-cluster -n local-cluster -k ~/.kube/config
+   mkdir -p configs
+   cp examples/configs/apps.json configs/apps.json
+   cp examples/configs/clusters.json configs/clusters.json
    ```
 
-2. **Register the application**, pointing to this repository:
-   ```bash
-   gitopsctl register-apps \
-     -n example-nginx \
-     -r https://github.com/aeswibon/gitopsctl.git \
-     -p examples/nginx \
-     -c local-cluster \
-     -i 30s
-   ```
+2. **Configure your cluster**:
+   Edit `configs/clusters.json` and ensure the `kubeconfigPath` is correct for your system.
 
-3. **Start the controller**:
+3. **Start GitOpsCTL**:
    ```bash
    gitopsctl start
    ```
 
-The controller will poll the repository and deploy the `deployment.yaml` found in `examples/nginx` to your cluster.
+4. **Explore the dashboard**:
+   ```bash
+   gitopsctl dashboard
+   ```
+
+For a detailed guide, see [Getting Started](../docs/getting-started.md).
