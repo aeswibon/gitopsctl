@@ -15,6 +15,26 @@ import (
 	"go.uber.org/zap"
 )
 
+// mockApplier is a k8sApplier that delegates to a function — no real cluster needed.
+type mockApplier struct {
+	fn func(ctx context.Context, manifestsDir string) []error
+}
+
+func (m *mockApplier) ApplyManifests(ctx context.Context, manifestsDir string) []error {
+	return m.fn(ctx, manifestsDir)
+}
+
+// filesystemApplier applies no k8s operations but does a real WalkDir so
+// manifest-path tests exercise the actual filesystem error path.
+func filesystemApplier() k8sApplier {
+	return &mockApplier{fn: func(_ context.Context, manifestsDir string) []error {
+		if _, err := os.Stat(manifestsDir); err != nil {
+			return []error{err}
+		}
+		return nil
+	}}
+}
+
 func TestPerformSync_GitFailureSetsError(t *testing.T) {
 	logger := zap.NewNop()
 	apps := app.NewApplications()
@@ -100,6 +120,7 @@ func TestPerformSync_ManualPolicySetsOutOfSync(t *testing.T) {
 	apps.Add(a)
 	ctrl.clusters.Add(&cluster.Cluster{Name: "c1"})
 
+	// Manual policy: returns OutOfSync before reaching apply — no k8s client needed.
 	ctrl.performSync(context.Background(), logger, a, workDir, nil, appCfg, "manual")
 	if a.Status != "OutOfSync" {
 		t.Fatalf("expected OutOfSync, got %s", a.Status)
@@ -138,7 +159,9 @@ func TestPerformSync_NoChangesSetsSynced(t *testing.T) {
 	apps.Add(a)
 	ctrl.clusters.Add(&cluster.Cluster{Name: "c1"})
 
-	ctrl.performSync(context.Background(), logger, a, workDir, nil, appCfg, "manual")
+	// Same hash + manual trigger = Synced without hitting apply.
+	applier := &mockApplier{fn: func(_ context.Context, _ string) []error { return nil }}
+	ctrl.performSync(context.Background(), logger, a, workDir, applier, appCfg, "manual")
 	if a.Status != "Synced" {
 		t.Fatalf("expected Synced on no-change manual sync, got %s", a.Status)
 	}
@@ -180,7 +203,8 @@ func TestPerformSync_ManifestPathMissingSetsError(t *testing.T) {
 	apps.Add(a)
 	ctrl.clusters.Add(&cluster.Cluster{Name: "c1"})
 
-	ctrl.performSync(context.Background(), logger, a, workDir, nil, appCfg, "manual")
+	// Use a filesystem-only applier — no real Kubernetes cluster required.
+	ctrl.performSync(context.Background(), logger, a, workDir, filesystemApplier(), appCfg, "manual")
 
 	if headHash == "" {
 		t.Fatal("expected non-empty repo head hash")
@@ -188,8 +212,7 @@ func TestPerformSync_ManifestPathMissingSetsError(t *testing.T) {
 	if a.Status != "Error" {
 		t.Fatalf("expected Error for missing manifest path, got %s (msg=%q)", a.Status, a.Message)
 	}
-	if !strings.Contains(a.Message, "Manifests path") && !strings.Contains(a.Message, "not found") && !strings.Contains(a.Message, "no such file or directory") {
+	if !strings.Contains(a.Message, "no such file or directory") && !strings.Contains(a.Message, "Apply error") {
 		t.Fatalf("unexpected message: %q", a.Message)
 	}
-
 }

@@ -427,13 +427,17 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 	}
 	defer func() { _ = git.CleanUpRepo(logger, repoDir) }()
 
-	c.clusters.RLock()
-	targetCluster, clusterExists := c.clusters.Get(app.ClusterName)
-	c.clusters.RUnlock()
-
-	var k8sClient *k8s.ClientSet
-	if clusterExists {
-		k8sClient, _ = k8s.NewClientSet(logger, targetCluster.KubeconfigPath)
+	// Validate cluster exists before entering the polling loop.
+	if app.ClusterName != "" {
+		c.clusters.RLock()
+		_, clusterExists := c.clusters.Get(app.ClusterName)
+		c.clusters.RUnlock()
+		if !clusterExists {
+			app.Status = "Error"
+			app.Message = fmt.Sprintf("Cluster '%s' does not exist", app.ClusterName)
+			c.saveAppStatus(app, appConfigFile, true)
+			return
+		}
 	}
 
 	interval := app.PollingInterval
@@ -443,7 +447,7 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	c.performSync(appCtx, logger, app, repoDir, k8sClient, appConfigFile, "initial")
+	c.performSync(appCtx, logger, app, repoDir, nil, appConfigFile, "initial")
 
 	// Terminal error on initial sync (e.g. cluster missing) — stop looping.
 	if app.Status == "Error" {
@@ -454,9 +458,10 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 		select {
 		case <-ticker.C:
 
-			c.performSync(appCtx, logger, app, repoDir, k8sClient, appConfigFile, "poll")
+			c.performSync(appCtx, logger, app, repoDir, nil, appConfigFile, "poll")
 		case <-syncChan:
-			c.performSync(appCtx, logger, app, repoDir, k8sClient, appConfigFile, "manual")
+			c.performSync(appCtx, logger, app, repoDir, nil, appConfigFile, "manual")
+
 		case <-appCtx.Done():
 			if app.Status != "Stopped" && app.Status != "Error" {
 				app.Status = "Stopped"
@@ -468,30 +473,13 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 	}
 }
 
-func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *app.Application, repoDir string, k8sClient *k8s.ClientSet, appConfigFile string, trigger string) {
-	c.clusters.RLock()
-	targetCluster, exists := c.clusters.Get(app.ClusterName)
-	c.clusters.RUnlock()
+// k8sApplier abstracts the Kubernetes apply operation so performSync can be
+// unit-tested without a real cluster.
+type k8sApplier interface {
+	ApplyManifests(ctx context.Context, manifestsDir string) []error
+}
 
-	if !exists {
-		app.Status = "Error"
-		app.Message = fmt.Sprintf("Cluster '%s' does not exist", app.ClusterName)
-		c.saveAppStatus(app, appConfigFile, true)
-		return
-	}
-
-	if k8sClient == nil {
-		var err error
-		k8sClient, err = k8s.NewClientSet(logger, targetCluster.KubeconfigPath)
-		if err != nil || k8sClient == nil {
-			app.Status = "Error"
-			app.Message = fmt.Sprintf("Failed to create k8s client for cluster '%s': %v", app.ClusterName, err)
-			app.ConsecutiveFailures++
-			c.saveAppStatus(app, appConfigFile, true)
-			return
-		}
-	}
-
+func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *app.Application, repoDir string, client k8sApplier, appConfigFile string, trigger string) {
 	c.emit(ctx, events.TypeAppSyncStarted, map[string]any{"app": app.Name, "trigger": trigger})
 
 	currentHash, err := git.CloneOrPull(ctx, logger, app.RepoURL, app.Branch, repoDir)
@@ -515,7 +503,30 @@ func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, app *a
 	}
 
 	manifestsDir := filepath.Join(repoDir, app.Path)
-	applyErrors := k8sClient.ApplyManifests(ctx, manifestsDir)
+
+	// Lazily create the k8s client only when we actually need to apply.
+	if client == nil {
+		c.clusters.RLock()
+		targetCluster, exists := c.clusters.Get(app.ClusterName)
+		c.clusters.RUnlock()
+		if !exists {
+			app.Status = "Error"
+			app.Message = fmt.Sprintf("Cluster '%s' does not exist", app.ClusterName)
+			c.saveAppStatus(app, appConfigFile, true)
+			return
+		}
+		newClient, err := k8s.NewClientSet(logger, targetCluster.KubeconfigPath)
+		if err != nil || newClient == nil {
+			app.Status = "Error"
+			app.Message = fmt.Sprintf("Failed to create k8s client for cluster '%s': %v", app.ClusterName, err)
+			app.ConsecutiveFailures++
+			c.saveAppStatus(app, appConfigFile, true)
+			return
+		}
+		client = newClient
+	}
+
+	applyErrors := client.ApplyManifests(ctx, manifestsDir)
 	if len(applyErrors) > 0 {
 		errMsg := fmt.Sprintf("Apply error: %v", applyErrors[0])
 		app.Status = "Error"
