@@ -1,12 +1,17 @@
 [
   {
-    "name": "local-cluster",
-    "kubeconfigPath": "/home/user/.kube/config",
+    "name": "local-dev",
+    "kubeconfigPath": "/Users/aeswibon/.kube/config",
     "allowedNamespaces": ["default", "demo"]
   },
   {
     "name": "staging-cluster",
     "kubeconfigPath": "/etc/gitopsctl/kubeconfig-staging",
-    "allowedNamespaces": ["staging", "monitoring"]
+    "allowedNamespaces": ["staging", "monitoring", "redis"]
+  },
+  {
+    "name": "prod-cluster",
+    "kubeconfigPath": "/etc/gitopsctl/kubeconfig-prod",
+    "allowedNamespaces": ["prod", "auth"]
   }
 ]
