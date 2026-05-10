@@ -1,0 +1,12 @@
+[
+  {
+    "name": "local-cluster",
+    "kubeconfigPath": "/home/user/.kube/config",
+    "allowedNamespaces": ["default", "demo"]
+  },
+  {
+    "name": "staging-cluster",
+    "kubeconfigPath": "/etc/gitopsctl/kubeconfig-staging",
+    "allowedNamespaces": ["staging", "monitoring"]
+  }
+]

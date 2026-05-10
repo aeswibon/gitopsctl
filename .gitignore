@@ -1,6 +1,10 @@
-configs
+/configs
 gitopsctl
 .tmp_gitopsctl*
 dist/
 coverage.out
 coverage.html
+# Ignore runtime configs in test packages
+internal/**/configs
+# But don't ignore examples
+!examples/configs
