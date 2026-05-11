@@ -19,11 +19,14 @@ func (c *apiClient) listenForEvents(ctx context.Context) tea.Cmd {
 		}
 
 		resp, err := c.sseClient.Do(req)
-
 		if err != nil {
 			return errorMsg(err)
 		}
 		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode != http.StatusOK {
+			return errorMsg(fmt.Errorf("server returned status %d", resp.StatusCode))
+		}
 
 		scanner := bufio.NewScanner(resp.Body)
 		for scanner.Scan() {
