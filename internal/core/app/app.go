@@ -20,70 +20,23 @@ const (
 // It encapsulates all the necessary metadata and operational details required
 // to monitor and synchronize the application's state between Git and Kubernetes.
 type Application struct {
-	// Name is a unique identifier for the application.
-	// It must be unique across all registered applications and should follow
-	// DNS subdomain naming conventions for compatibility with Kubernetes resources.
-	Name string `json:"name"`
-
-	// RepoURL specifies the URL of the Git repository where the application's manifests are stored.
-	// This URL can be HTTPS or SSH-based, depending on the user's authentication setup.
-	RepoURL string `json:"repoURL"`
-
-	// Branch defines the Git branch to monitor for changes.
-	// The controller will track this branch for updates and apply changes accordingly.
-	Branch string `json:"branch"`
-
-	// Path specifies the relative directory within the repository where Kubernetes manifests are located.
-	// This allows users to organize multiple applications or environments within a single repository.
-	Path string `json:"path"`
-
-	// ClusterName is the name of the Kubernetes cluster where the application will be deployed.
-	// This name is used for logging and status reporting purposes.
-	ClusterName string `json:"clusterName"`
-
-	// Interval is the polling interval as a string (e.g., "5m", "30s").
-	// It defines how frequently the controller should check the Git repository for changes.
-	Interval string `json:"interval"`
-
-	// PollingInterval is the parsed duration of the Interval field for internal use.
-	// This field is not serialized into JSON and is used for efficient time-based operations.
-	PollingInterval time.Duration `json:"-"`
-
-	// LastSyncedGitHash stores the Git commit hash of the last successfully synchronized state.
-	// This helps the controller detect changes and avoid redundant operations.
-	LastSyncedGitHash string `json:"lastSyncedGitHash,omitempty"`
-
-	// Status represents the current operational state of the application.
-	// Possible values include "Running", "Error", "Synced", "Pending", etc.
-	Status string `json:"status,omitempty"`
-
-	// Message provides additional context about the application's current state.
-	// It can include error details, success messages, or other relevant information.
-	Message string `json:"message,omitempty"`
-
-	// ConsecutiveFailures tracks the number of consecutive synchronization failures.
-	// This can be used to implement backoff logic or alerting mechanisms.
-	ConsecutiveFailures int `json:"consecutiveFailures,omitempty"`
-
-	// SyncPolicy defines the synchronization strategy for the application.
-	// Possible values are "auto" (default) and "manual".
-	SyncPolicy string `json:"syncPolicy,omitempty"`
-
-	// ApprovedGitHash stores the Git commit hash that has been approved for deployment.
-	// This is used when the SyncPolicy is set to "manual".
-	ApprovedGitHash string `json:"approvedGitHash,omitempty"`
-
-	// LatestGitHash is the most recent commit hash discovered by the controller.
-	LatestGitHash string `json:"latestGitHash,omitempty"`
-
-	// WebhookURL is an optional endpoint to send sync notifications to.
-	WebhookURL string `json:"webhookUrl,omitempty"`
-
-	// WebhookSecret is an optional secret to sign webhook payloads.
-	WebhookSecret string `json:"webhookSecret,omitempty"`
-
-	// AppliedResources tracks the Kubernetes resources applied for this application.
-	AppliedResources []ResourceMetadata `json:"appliedResources,omitempty"`
+	Name                string             `json:"name"`
+	RepoURL             string             `json:"repo_url"`
+	Branch              string             `json:"branch"`
+	Path                string             `json:"path"`
+	ClusterName         string             `json:"cluster_name"`
+	Interval            string             `json:"interval"`
+	PollingInterval     time.Duration      `json:"-"`
+	LastSyncedGitHash   string             `json:"last_synced_git_hash,omitempty"`
+	Status              string             `json:"status,omitempty"`
+	Message             string             `json:"message,omitempty"`
+	ConsecutiveFailures int                `json:"consecutive_failures,omitempty"`
+	SyncPolicy          string             `json:"sync_policy,omitempty"`
+	ApprovedGitHash     string             `json:"approved_git_hash,omitempty"`
+	LatestGitHash       string             `json:"latest_git_hash,omitempty"`
+	WebhookURL          string             `json:"webhook_url,omitempty"`
+	WebhookSecret       string             `json:"webhook_secret,omitempty"`
+	AppliedResources    []ResourceMetadata `json:"applied_resources,omitempty"`
 }
 
 // ResourceMetadata matches the one in internal/core/k8s to avoid circular imports.

@@ -171,10 +171,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.history = m.history[1:]
 			}
 		}
-		cmds = append(cmds, m.fetchApps(), m.fetchClusters(), m.client.listenForEvents(m.ctx))
+		// Throttle refetches or just fetch status. For now, just continue listening.
+		cmds = append(cmds, m.client.listenForEvents(m.ctx))
+		// We could fetch apps/clusters here, but let's see if this stops the flood.
+		// Actually, let's keep the fetches but we need a better streaming model later.
+		cmds = append(cmds, m.fetchApps(), m.fetchClusters())
 
 	case sseDisconnectedMsg:
-		return m, m.client.listenForEvents(m.ctx)
+		// Add a 1s backoff to avoid tight reconnection loops
+		return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
+			return reconnectMsg{}
+		})
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
