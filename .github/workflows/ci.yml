@@ -16,7 +16,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.25.10"
+          go-version: "1.26.0"
           cache: true
 
       - name: Go build
@@ -54,7 +54,7 @@ jobs:
           fi
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: ./coverage.txt
           fail_ci_if_error: false
