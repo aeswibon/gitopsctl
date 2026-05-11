@@ -23,21 +23,13 @@ const (
 // It contains the cluster name, path to the kubeconfig file, registration time,
 // and optional status and message fields for error handling or status reporting.
 type Cluster struct {
-	// Name is the unique identifier for the cluster.
-	Name string `json:"name"`
-	// KubeconfigPath is the path to the kubeconfig file for this cluster.
-	KubeconfigPath string `json:"kubeconfigPath"`
-	// RegisteredAt is the time when the cluster was registered.
-	RegisteredAt time.Time `json:"registeredAt"`
-	// Status and Message are optional fields for reporting the cluster's status.
-	Status string `json:"status,omitempty"`
-	// Message can contain additional information about the cluster's status.
-	Message string `json:"message,omitempty"`
-	// LastCheckedAt is the last time the cluster was checked for status updates.
-	LastCheckedAt time.Time `json:"lastCheckedAt,omitempty"`
-	// AllowedNamespaces is an optional list of namespaces the controller is restricted to for this cluster.
-	// If empty, no namespace restriction is enforced by the controller.
-	AllowedNamespaces []string `json:"allowedNamespaces,omitempty"`
+	Name              string    `json:"name"`
+	KubeconfigPath    string    `json:"kubeconfig_path"`
+	RegisteredAt      time.Time `json:"registered_at"`
+	Status            string    `json:"status,omitempty"`
+	Message           string    `json:"message,omitempty"`
+	LastCheckedAt     time.Time `json:"last_checked_at,omitempty"`
+	AllowedNamespaces []string  `json:"allowed_namespaces,omitempty"`
 }
 
 // Clusters represents a thread-safe collection of Cluster objects.
