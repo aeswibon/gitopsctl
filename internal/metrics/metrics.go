@@ -60,4 +60,13 @@ var (
 		},
 		[]string{"app", "status"},
 	)
+
+	// AppDriftTotal counts detected drifts between Git and cluster.
+	AppDriftTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "gitopsctl_app_drift_total",
+			Help: "Total number of drift detections",
+		},
+		[]string{"app", "cluster", "kind"},
+	)
 )

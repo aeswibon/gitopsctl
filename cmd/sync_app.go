@@ -34,6 +34,9 @@ Requires 'gitopsctl start' with API reachable (--api-url must match the controll
 		if err != nil {
 			return err
 		}
+		if apiAuthKey != "" {
+			req.Header.Set("X-API-Key", apiAuthKey)
+		}
 
 		resp, err := client.Do(req)
 		if err != nil {

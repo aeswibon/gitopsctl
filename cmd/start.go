@@ -77,7 +77,7 @@ Phase 2: optionally emit integration events (JSONL file and/or HTTP webhook) for
 			zap.Bool("webhook_sink", eventsWebhookURL != ""))
 
 		ctrl := controller.NewController(logger, apps, clusters, ctrlOpts...)
-		apiServer := api.NewServer(logger, apps, clusters, ctrl, streamSink, historySink)
+		apiServer := api.NewServer(logger, apps, clusters, ctrl, streamSink, historySink, apiAuthKey)
 
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -15,17 +16,26 @@ import (
 
 var (
 	// Flags for the register command
-	appName       string // Name of the application
-	repoURL       string // Git repository URL
-	branch        string // Branch in the repository (optional, default is "main")
-	pathInRepo    string // Path to Kubernetes manifests in the repository
-	clusterName   string // Name of the Kubernetes cluster
-	interval      string // Polling interval for Git repository
-	dryRunApp     bool   // Preview changes without applying them
-	forceApp      bool   // Force overwrite existing application
-	syncPolicy    string // Synchronization policy (auto or manual)
-	webhookURL    string // Webhook URL for notifications
-	webhookSecret string // Webhook secret for signing
+	appName        string // Name of the application
+	repoURL        string // Git repository URL
+	branch         string // Branch in the repository (optional, default is "main")
+	pathInRepo     string // Path to Kubernetes manifests in the repository
+	clusterName    string // Name of the Kubernetes cluster
+	interval       string // Polling interval for Git repository
+	dryRunApp      bool   // Preview changes without applying them
+	forceApp       bool   // Force overwrite existing application
+	syncPolicy     string // Synchronization policy (auto or manual)
+	webhookURL     string // Webhook URL
+	webhookSecret  string // Webhook secret for signing
+	gitUsername    string // Git username
+	gitPassword    string // Git password/token
+	gitToken       string // Git token
+	gitSSHKeyFile  string // Path to SSH private key
+	maxRetries     int    // Maximum number of retries
+	retryInitial   string // Initial backoff duration
+	retryMax       string // Maximum backoff duration
+	createNS       bool   // Create target namespace
+	pruneResources bool   // Prune removed resources
 )
 
 // registrationConfig holds validated configuration for app registration
@@ -40,6 +50,15 @@ type registrationConfig struct {
 	syncPolicy      string
 	webhookURL      string
 	webhookSecret   string
+	gitUsername     string
+	gitPassword     string
+	gitToken        string
+	gitSSHKey       string
+	maxRetries      int
+	retryInitial    string
+	retryMax        string
+	createNS        bool
+	pruneResources  bool
 }
 
 var registerCmd = &cobra.Command{
@@ -163,6 +182,35 @@ func validateAndNormalizeInput() (*registrationConfig, error) {
 	config.webhookURL = strings.TrimSpace(webhookURL)
 	config.webhookSecret = strings.TrimSpace(webhookSecret)
 
+	config.gitUsername = strings.TrimSpace(gitUsername)
+	config.gitPassword = strings.TrimSpace(gitPassword)
+	config.gitToken = strings.TrimSpace(gitToken)
+
+	if gitSSHKeyFile != "" {
+		keyContent, err := os.ReadFile(gitSSHKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read Git SSH key file: %w", err)
+		}
+		config.gitSSHKey = string(keyContent)
+	}
+
+	config.maxRetries = maxRetries
+	config.retryInitial = strings.TrimSpace(retryInitial)
+	config.retryMax = strings.TrimSpace(retryMax)
+	config.createNS = createNS
+	config.pruneResources = pruneResources
+
+	if config.retryInitial != "" {
+		if _, err := time.ParseDuration(config.retryInitial); err != nil {
+			return nil, fmt.Errorf("invalid initial backoff duration: %w", err)
+		}
+	}
+	if config.retryMax != "" {
+		if _, err := time.ParseDuration(config.retryMax); err != nil {
+			return nil, fmt.Errorf("invalid max backoff duration: %w", err)
+		}
+	}
+
 	return config, nil
 }
 
@@ -226,6 +274,17 @@ func createApplication(config *registrationConfig) *app.Application {
 		SyncPolicy:          config.syncPolicy,
 		WebhookURL:          config.webhookURL,
 		WebhookSecret:       config.webhookSecret,
+		Credentials: &app.GitCredentials{
+			Username: config.gitUsername,
+			Password: config.gitPassword,
+			Token:    config.gitToken,
+			SSHKey:   config.gitSSHKey,
+		},
+		MaxRetries:      config.maxRetries,
+		InitialBackoff:  config.retryInitial,
+		MaxBackoff:      config.retryMax,
+		CreateNamespace: config.createNS,
+		Prune:           config.pruneResources,
 	}
 }
 
@@ -340,6 +399,25 @@ func init() {
 		"Preview the registration without applying changes")
 	registerCmd.Flags().BoolVar(&forceApp, "force", false,
 		"Force overwrite existing application")
+
+	registerCmd.Flags().StringVar(&gitUsername, "git-username", "",
+		"Username for Git authentication")
+	registerCmd.Flags().StringVar(&gitPassword, "git-password", "",
+		"Password or Personal Access Token for Git authentication")
+	registerCmd.Flags().StringVar(&gitToken, "git-token", "",
+		"Personal Access Token for Git authentication (alternative to password)")
+	registerCmd.Flags().StringVar(&gitSSHKeyFile, "git-ssh-key-file", "",
+		"Path to SSH private key file for Git authentication")
+	registerCmd.Flags().IntVar(&maxRetries, "max-retries", 0,
+		"Maximum number of retries for failed syncs (0 for infinite)")
+	registerCmd.Flags().StringVar(&retryInitial, "retry-initial-backoff", "30s",
+		"Initial backoff duration for failed syncs")
+	registerCmd.Flags().StringVar(&retryMax, "retry-max-backoff", "10m",
+		"Maximum backoff duration for failed syncs")
+	registerCmd.Flags().BoolVar(&createNS, "create-namespace", false,
+		"Automatically create the target namespace if it doesn't exist")
+	registerCmd.Flags().BoolVar(&pruneResources, "prune", false,
+		"Automatically delete Kubernetes resources that are no longer present in Git")
 
 	_ = registerCmd.MarkFlagRequired("name")
 	_ = registerCmd.MarkFlagRequired("repo")

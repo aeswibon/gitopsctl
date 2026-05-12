@@ -19,13 +19,13 @@ import (
 
 // mockApplier is a k8sApplier that delegates to a function — no real cluster needed.
 type mockApplier struct {
-	applyFn  func(ctx context.Context, manifestsDir, appName, clusterName string) ([]k8s.ResourceMetadata, []error)
+	applyFn  func(ctx context.Context, manifestsDir, appName, clusterName string, createNamespace bool, previouslyApplied []k8s.ResourceMetadata, prune bool) ([]k8s.ResourceMetadata, []error)
 	healthFn func(ctx context.Context, r k8s.ResourceMetadata) (string, string, error)
 }
 
-func (m *mockApplier) ApplyManifests(ctx context.Context, manifestsDir, appName, clusterName string) ([]k8s.ResourceMetadata, []error) {
+func (m *mockApplier) ApplyManifests(ctx context.Context, manifestsDir, appName, clusterName string, createNamespace bool, previouslyApplied []k8s.ResourceMetadata, prune bool) ([]k8s.ResourceMetadata, []error) {
 	if m.applyFn != nil {
-		return m.applyFn(ctx, manifestsDir, appName, clusterName)
+		return m.applyFn(ctx, manifestsDir, appName, clusterName, createNamespace, previouslyApplied, prune)
 	}
 	return nil, nil
 }
@@ -40,7 +40,7 @@ func (m *mockApplier) GetResourceHealth(ctx context.Context, r k8s.ResourceMetad
 // filesystemApplier applies no k8s operations but does a real WalkDir so
 // manifest-path tests exercise the actual filesystem error path.
 func filesystemApplier() k8sApplier {
-	return &mockApplier{applyFn: func(_ context.Context, manifestsDir, _, _ string) ([]k8s.ResourceMetadata, []error) {
+	return &mockApplier{applyFn: func(_ context.Context, manifestsDir, _, _ string, _ bool, _ []k8s.ResourceMetadata, _ bool) ([]k8s.ResourceMetadata, []error) {
 		if _, err := os.Stat(manifestsDir); err != nil {
 			return nil, []error{err}
 		}
@@ -154,7 +154,7 @@ func TestPerformSync_NoChangesSetsSynced(t *testing.T) {
 	appCfg := filepath.Join(workDir, "apps.json")
 
 	// First clone to workDir and read hash.
-	hash, err := gitcore.CloneOrPull(context.Background(), logger, repoPath, "master", workDir)
+	hash, err := gitcore.CloneOrPull(context.Background(), logger, repoPath, "master", workDir, gitcore.AuthOptions{})
 	if err != nil {
 		t.Fatalf("initial clone failed: %v", err)
 	}
@@ -173,7 +173,9 @@ func TestPerformSync_NoChangesSetsSynced(t *testing.T) {
 	ctrl.clusters.Add(&cluster.Cluster{Name: "c1"})
 
 	// Same hash + manual trigger = Synced without hitting apply.
-	applier := &mockApplier{applyFn: func(_ context.Context, _, _, _ string) ([]k8s.ResourceMetadata, []error) { return nil, nil }}
+	applier := &mockApplier{applyFn: func(_ context.Context, _, _, _ string, _ bool, _ []k8s.ResourceMetadata, _ bool) ([]k8s.ResourceMetadata, []error) {
+		return nil, nil
+	}}
 	ctrl.performSync(context.Background(), logger, a, workDir, applier, appCfg, "manual")
 	if a.Status != "Synced" {
 		t.Fatalf("expected Synced on no-change manual sync, got %s", a.Status)
@@ -193,7 +195,7 @@ func TestPerformSync_ManifestPathMissingSetsError(t *testing.T) {
 
 	appCfg := filepath.Join(workDir, "apps.json")
 
-	if _, err := gitcore.CloneOrPull(context.Background(), logger, repoPath, "master", workDir); err != nil {
+	if _, err := gitcore.CloneOrPull(context.Background(), logger, repoPath, "master", workDir, gitcore.AuthOptions{}); err != nil {
 		t.Fatalf("clone failed: %v", err)
 	}
 
@@ -345,7 +347,7 @@ func TestPerformSync_ManualSyncApproved(t *testing.T) {
 	ctrl.clusters.Add(&cluster.Cluster{Name: "c1", KubeconfigPath: "invalid"})
 
 	mock := &mockApplier{
-		applyFn: func(ctx context.Context, manifestsDir, appName, clusterName string) ([]k8s.ResourceMetadata, []error) {
+		applyFn: func(ctx context.Context, manifestsDir, appName, clusterName string, _ bool, _ []k8s.ResourceMetadata, _ bool) ([]k8s.ResourceMetadata, []error) {
 			return []k8s.ResourceMetadata{{Kind: "ConfigMap", Name: "sample"}}, nil
 		},
 	}
@@ -381,7 +383,7 @@ func TestPerformSync_ApplyFailure(t *testing.T) {
 	ctrl.clusters.Add(&cluster.Cluster{Name: "c1"})
 
 	mock := &mockApplier{
-		applyFn: func(ctx context.Context, manifestsDir, appName, clusterName string) ([]k8s.ResourceMetadata, []error) {
+		applyFn: func(ctx context.Context, manifestsDir, appName, clusterName string, _ bool, _ []k8s.ResourceMetadata, _ bool) ([]k8s.ResourceMetadata, []error) {
 			return nil, []error{fmt.Errorf("apply failed")}
 		},
 	}

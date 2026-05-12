@@ -295,7 +295,7 @@ func (c *Controller) clusterHealthChecker() {
 
 func (c *Controller) performClusterHealthCheck(ctx context.Context, cl *cluster.Cluster) {
 	logger := c.logger.With(zap.String("cluster", cl.Name))
-	k8sClient, err := k8s.NewClientSet(logger, cl.KubeconfigPath, cl.AllowedNamespaces)
+	k8sClient, err := k8s.NewClientSet(logger, cl.KubeconfigPath, cl.AllowedNamespaces, cl.DefaultNamespace, cl.EnforceNamespace)
 	if err != nil {
 		cl.Status = "Error"
 		cl.Message = fmt.Sprintf("Failed to create K8s client: %v", err)
@@ -441,7 +441,7 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 			c.saveAppStatus(app, appConfigFile, true)
 			return
 		}
-		newClient, err := k8s.NewClientSet(c.logger, cl.KubeconfigPath, cl.AllowedNamespaces)
+		newClient, err := k8s.NewClientSet(c.logger, cl.KubeconfigPath, cl.AllowedNamespaces, cl.DefaultNamespace, cl.EnforceNamespace)
 		if err != nil {
 			app.Status = "Error"
 			app.Message = fmt.Sprintf("Failed to create k8s client: %v", err)
@@ -469,6 +469,12 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 	}
 
 	for {
+		nextInterval := c.getNextInterval(app)
+		if app.ConsecutiveFailures > 0 {
+			logger.Debug("Sync failed, backing off", zap.Int("failures", app.ConsecutiveFailures), zap.Duration("next_retry", nextInterval))
+		}
+		ticker.Reset(nextInterval)
+
 		select {
 		case <-ticker.C:
 			c.performSync(appCtx, logger, app, repoDir, client, appConfigFile, "poll")
@@ -488,19 +494,103 @@ func (c *Controller) reconcileApp(appCtx context.Context, app *app.Application, 
 	}
 }
 
+func (c *Controller) getNextInterval(app *app.Application) time.Duration {
+	if app.ConsecutiveFailures == 0 {
+		interval := app.PollingInterval
+		if interval <= 0 {
+			interval = 5 * time.Minute
+		}
+		return interval
+	}
+
+	// Calculate exponential backoff
+	backoff := app.RetryBackoff
+	if backoff <= 0 {
+		backoff = 30 * time.Second // Default initial backoff
+	}
+
+	// Backoff = initial * 2^(failures-1)
+	// Limit to avoid overflow if failures is very high
+	failures := app.ConsecutiveFailures
+	if failures > 20 {
+		failures = 20
+	}
+
+	for i := 1; i < failures; i++ {
+		backoff *= 2
+	}
+
+	maxBackoff := app.MaxRetryBackoff
+	if maxBackoff <= 0 {
+		maxBackoff = 10 * time.Minute // Default max backoff
+	}
+
+	if backoff > maxBackoff {
+		backoff = maxBackoff
+	}
+
+	return backoff
+}
+
+func (c *Controller) checkDependencies(application *app.Application) (bool, string) {
+	if len(application.DependsOn) == 0 {
+		return true, ""
+	}
+
+	c.apps.RLock()
+	defer c.apps.RUnlock()
+
+	for _, depName := range application.DependsOn {
+		dep, ok := c.apps.Apps[depName]
+		if !ok {
+			return false, fmt.Sprintf("Dependency %q not found", depName)
+		}
+		if dep.Status != "Synced" && dep.Status != "Healthy" {
+			return false, fmt.Sprintf("Waiting for dependency %q (status: %s)", depName, dep.Status)
+		}
+	}
+	return true, ""
+}
+
 // k8sApplier abstracts the Kubernetes apply operation so performSync can be
 // unit-tested without a real cluster.
 type k8sApplier interface {
-	ApplyManifests(ctx context.Context, manifestsDir string, appName, clusterName string) ([]k8s.ResourceMetadata, []error)
+	ApplyManifests(ctx context.Context, manifestsDir string, appName, clusterName string, createNamespace bool, previouslyApplied []k8s.ResourceMetadata, prune bool) ([]k8s.ResourceMetadata, []error)
 	GetResourceHealth(ctx context.Context, r k8s.ResourceMetadata) (string, string, error)
 }
 
 func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, application *app.Application, repoDir string, client k8sApplier, appConfigFile string, trigger string) {
+	if trigger != "manual" { // Always allow manual syncs as a bypass
+		if allowed, reason := application.IsSyncAllowed(time.Now()); !allowed {
+			application.Status = "SyncBlocked"
+			application.Message = reason
+			c.saveAppStatus(application, appConfigFile, false) // don't notify every time?
+			return
+		}
+	}
+
+	if trigger != "manual" {
+		if ok, reason := c.checkDependencies(application); !ok {
+			application.Status = "WaitingForDependencies"
+			application.Message = reason
+			c.saveAppStatus(application, appConfigFile, false)
+			return
+		}
+	}
+
 	oldStatus := application.Status
 	oldHash := application.LastSyncedGitHash
 	c.emit(ctx, events.TypeAppSyncStarted, map[string]any{"app": application.Name, "trigger": trigger})
 
-	currentHash, err := git.CloneOrPull(ctx, logger, application.RepoURL, application.Branch, repoDir)
+	auth := git.AuthOptions{}
+	if application.Credentials != nil {
+		auth.Username = application.Credentials.Username
+		auth.Password = application.Credentials.Password
+		auth.Token = application.Credentials.Token
+		auth.SSHKey = application.Credentials.SSHKey
+	}
+
+	currentHash, err := git.CloneOrPull(ctx, logger, application.RepoURL, application.Branch, repoDir, auth)
 	if err != nil {
 		metrics.GitPullTotal.WithLabelValues(application.Name, "failure").Inc()
 		application.Status = "Error"
@@ -543,7 +633,7 @@ func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, applic
 			return
 		}
 
-		newClient, err := k8s.NewClientSet(c.logger, cl.KubeconfigPath, cl.AllowedNamespaces)
+		newClient, err := k8s.NewClientSet(c.logger, cl.KubeconfigPath, cl.AllowedNamespaces, cl.DefaultNamespace, cl.EnforceNamespace)
 		if err != nil || newClient == nil {
 			application.Status = "Error"
 			application.Message = fmt.Sprintf("Failed to create k8s client for cluster '%s': %v", application.ClusterName, err)
@@ -555,7 +645,19 @@ func (c *Controller) performSync(ctx context.Context, logger *zap.Logger, applic
 	}
 
 	start := time.Now()
-	applied, applyErrors := client.ApplyManifests(ctx, manifestsDir, application.Name, application.ClusterName)
+	// Map app.ResourceMetadata to k8s.ResourceMetadata
+	prevK8s := make([]k8s.ResourceMetadata, 0, len(application.AppliedResources))
+	for _, r := range application.AppliedResources {
+		prevK8s = append(prevK8s, k8s.ResourceMetadata{
+			Group:     r.Group,
+			Version:   r.Version,
+			Kind:      r.Kind,
+			Namespace: r.Namespace,
+			Name:      r.Name,
+		})
+	}
+
+	applied, applyErrors := client.ApplyManifests(ctx, manifestsDir, application.Name, application.ClusterName, application.CreateNamespace, prevK8s, application.Prune)
 	if len(applyErrors) > 0 {
 		metrics.AppSyncTotal.WithLabelValues(application.Name, application.ClusterName, "failure").Inc()
 		errMsg := fmt.Sprintf("Apply error: %v", applyErrors[0])

@@ -120,8 +120,10 @@ func StatusChip(status string) string {
 		return ChipSynced.Render("● " + status)
 	case "Error", "Unreachable":
 		return ChipError.Render("● " + status)
-	case "Pending", "Syncing", "OutOfSync":
+	case "Pending", "Syncing", "OutOfSync", "Drifted":
 		return ChipPending.Render("● " + status)
+	case "WaitingForDependencies":
+		return ChipDefault.Render("● " + status)
 	default:
 		if status == "" {
 			return ChipDefault.Render("● —")

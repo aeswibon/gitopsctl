@@ -17,6 +17,9 @@ func (c *apiClient) listenForEvents(ctx context.Context) tea.Cmd {
 		if err != nil {
 			return errorMsg(err)
 		}
+		if c.apiKey != "" {
+			req.Header.Set("X-API-Key", c.apiKey)
+		}
 
 		resp, err := c.sseClient.Do(req)
 		if err != nil {

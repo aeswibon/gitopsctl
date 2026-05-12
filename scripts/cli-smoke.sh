@@ -76,14 +76,16 @@ awk '/^  [a-z0-9][a-z0-9-]+[[:space:]]+/ {print $1}' "$TESTROOT/root.help" \
 ./gitopsctl status-clusters --output json >/dev/null
 
 # Mutating commands in dry-run mode
-./gitopsctl register-apps -n demoapp -r https://github.com/example/repo.git -p k8s -c local --dry-run --force >/dev/null
+./gitopsctl register-apps -n demoapp -r https://github.com/example/repo.git -p k8s -c local --dry-run --force \
+  --max-retries 5 --retry-initial-backoff "30s" --retry-max-backoff "1h" --create-namespace --prune >/dev/null
 ./gitopsctl unregister -n demoapp --dry-run >/dev/null
 
-# Cluster registration requires a real kubeconfig; ensure we fail cleanly.
-./gitopsctl register-cluster -n local -k /tmp/nonexistent-kubeconfig --dry-run --force >/dev/null 2>&1 || true
+# Cluster registration with namespacing
+./gitopsctl register-cluster -n local -k /tmp/nonexistent-kubeconfig --dry-run --force \
+  --default-namespace "gitops-apps" --enforce-namespace --allowed-namespaces "gitops-apps,monitoring" >/dev/null 2>&1 || true
 
 # Start controller briefly and exercise API-backed CLI actions + SSE.
-./gitopsctl start --api-address 127.0.0.1:18080 --events-file "$TESTROOT/configs/events.jsonl" >"$TESTROOT/start.log" 2>&1 &
+./gitopsctl start --api-address 127.0.0.1:18080 --api-key "smoke-test-key" --events-file "$TESTROOT/configs/events.jsonl" >"$TESTROOT/start.log" 2>&1 &
 PID=$!
 
 for _ in $(seq 1 80); do
@@ -98,8 +100,8 @@ done
 CPID=$!
 sleep 0.8
 
-./gitopsctl --api-url http://127.0.0.1:18080 sync-app -n demoapp >/dev/null || true
-./gitopsctl --api-url http://127.0.0.1:18080 check-cluster -n local >/dev/null || true
+./gitopsctl --api-url http://127.0.0.1:18080 --api-key "smoke-test-key" sync-app -n demoapp >/dev/null || true
+./gitopsctl --api-url http://127.0.0.1:18080 --api-key "smoke-test-key" check-cluster -n local >/dev/null || true
 
 wait "$CPID" || true
 kill "$PID" >/dev/null 2>&1 || true

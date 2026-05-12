@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -14,6 +15,8 @@ import (
 	"go.uber.org/zap"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart/loader"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -65,12 +68,16 @@ type ClientSet struct {
 	config *rest.Config
 	// allowedNamespaces is a list of namespaces this client is allowed to interact with.
 	allowedNamespaces []string
+	// defaultNamespace is the namespace to use if none is specified, or to enforce.
+	defaultNamespace string
+	// enforceNamespace if true, all namespaced resources will be forced into defaultNamespace.
+	enforceNamespace bool
 }
 
 // NewClientSet initializes a Kubernetes client set.
 // It attempts to use the provided kubeconfig file to build the configuration.
 // If the kubeconfig file is not provided or fails, it falls back to in-cluster configuration.
-func NewClientSet(logger *zap.Logger, kubeconfigPath string, allowedNamespaces []string) (*ClientSet, error) {
+func NewClientSet(logger *zap.Logger, kubeconfigPath string, allowedNamespaces []string, defaultNamespace string, enforceNamespace bool) (*ClientSet, error) {
 	var config *rest.Config
 	var err error
 
@@ -115,13 +122,15 @@ func NewClientSet(logger *zap.Logger, kubeconfigPath string, allowedNamespaces [
 		mapper:            mapper,
 		config:            config,
 		allowedNamespaces: allowedNamespaces,
+		defaultNamespace:  defaultNamespace,
+		enforceNamespace:  enforceNamespace,
 	}, nil
 }
 
 // ApplyManifests applies Kubernetes manifests from a given directory to the cluster.
 // It checks if the directory contains a Helm chart or Kustomization file and builds it if present.
 // Otherwise, it processes all YAML files in the specified directory.
-func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string, appName, clusterName string) ([]ResourceMetadata, []error) {
+func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string, appName, clusterName string, createNamespace bool, previouslyApplied []ResourceMetadata, prune bool) ([]ResourceMetadata, []error) {
 	cs.logger.Info("Applying manifests", zap.String("directory", manifestsDir))
 	var appliedResources []ResourceMetadata
 	var applyErrors []error
@@ -143,7 +152,10 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string, ap
 		client.DryRun = true
 		client.ClientOnly = true
 		client.ReleaseName = "gitopsctl-release"
-		client.Namespace = "default"
+		client.Namespace = cs.defaultNamespace
+		if client.Namespace == "" {
+			client.Namespace = "default"
+		}
 
 		chartReq, err := loader.Load(manifestsDir)
 		if err != nil {
@@ -158,7 +170,7 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string, ap
 		}
 
 		cs.logger.Debug("Successfully rendered Helm chart")
-		return cs.applyYAMLData(ctx, []byte(rel.Manifest), filepath.Join(manifestsDir, "Chart.yaml"), appName, clusterName)
+		return cs.applyYAMLData(ctx, []byte(rel.Manifest), filepath.Join(manifestsDir, "Chart.yaml"), appName, clusterName, false) // Helm usually handles NS
 	}
 
 	fSys := filesys.MakeFsOnDisk()
@@ -178,7 +190,7 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string, ap
 		}
 
 		cs.logger.Debug("Successfully built kustomization, applying generated YAML")
-		return cs.applyYAMLData(ctx, yamlBytes, filepath.Join(manifestsDir, "kustomization"), appName, clusterName)
+		return cs.applyYAMLData(ctx, yamlBytes, filepath.Join(manifestsDir, "kustomization"), appName, clusterName, false)
 	}
 
 	cs.logger.Info("No kustomization found, applying raw YAML files", zap.String("directory", manifestsDir))
@@ -202,7 +214,7 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string, ap
 			return nil
 		}
 
-		fileResources, fileErrors := cs.applyYAMLData(ctx, data, path, appName, clusterName)
+		fileResources, fileErrors := cs.applyYAMLData(ctx, data, path, appName, clusterName, createNamespace) // Use the flag here
 		if len(fileErrors) > 0 {
 			applyErrors = append(applyErrors, fileErrors...)
 		}
@@ -212,7 +224,67 @@ func (cs *ClientSet) ApplyManifests(ctx context.Context, manifestsDir string, ap
 	if err != nil {
 		applyErrors = append(applyErrors, fmt.Errorf("error during manifest directory walk %s: %w", manifestsDir, err))
 	}
+
+	if prune && len(applyErrors) == 0 {
+		pruneErrors := cs.pruneResources(ctx, previouslyApplied, appliedResources, appName, clusterName)
+		if len(pruneErrors) > 0 {
+			applyErrors = append(applyErrors, pruneErrors...)
+		}
+	}
+
 	return appliedResources, applyErrors
+}
+
+func (cs *ClientSet) pruneResources(ctx context.Context, previouslyApplied, currentlyApplied []ResourceMetadata, appName, clusterName string) []error {
+	var pruneErrors []error
+
+	// Map of currently applied for fast lookup
+	currentMap := make(map[string]bool)
+	for _, r := range currentlyApplied {
+		key := fmt.Sprintf("%s/%s/%s/%s", r.Group, r.Kind, r.Namespace, r.Name)
+		currentMap[key] = true
+	}
+
+	for _, r := range previouslyApplied {
+		key := fmt.Sprintf("%s/%s/%s/%s", r.Group, r.Kind, r.Namespace, r.Name)
+		if !currentMap[key] {
+			cs.logger.Info("Pruning resource",
+				zap.String("kind", r.Kind),
+				zap.String("name", r.Name),
+				zap.String("namespace", r.Namespace))
+
+			gvk := schema.GroupVersionKind{
+				Group:   r.Group,
+				Version: r.Version,
+				Kind:    r.Kind,
+			}
+			mapping, err := cs.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+			if err != nil {
+				pruneErrors = append(pruneErrors, fmt.Errorf("failed to get REST mapping for pruning %s: %w", r.Kind, err))
+				continue
+			}
+
+			var dr dynamic.ResourceInterface
+			if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
+				dr = cs.dynamicClient.Resource(mapping.Resource).Namespace(r.Namespace)
+			} else {
+				dr = cs.dynamicClient.Resource(mapping.Resource)
+			}
+
+			deleteErr := dr.Delete(ctx, r.Name, metav1.DeleteOptions{})
+			if deleteErr != nil && !apierrors.IsNotFound(deleteErr) {
+				cs.logger.Error("Failed to prune resource",
+					zap.String("kind", r.Kind),
+					zap.String("name", r.Name),
+					zap.Error(deleteErr))
+				pruneErrors = append(pruneErrors, fmt.Errorf("failed to prune %s %s/%s: %w", r.Kind, r.Namespace, r.Name, deleteErr))
+			} else {
+				metrics.K8sApplyTotal.WithLabelValues(appName, clusterName, r.Kind, "pruned").Inc()
+			}
+		}
+	}
+
+	return pruneErrors
 }
 
 func (cs *ClientSet) decryptDirectory(dir string) error {
@@ -259,7 +331,7 @@ func hasHelmChart(dir string) bool {
 }
 
 // applyYAMLData takes a byte slice of YAML documents (separated by ---) and applies them to the cluster.
-func (cs *ClientSet) applyYAMLData(ctx context.Context, data []byte, sourceName, appName, clusterName string) ([]ResourceMetadata, []error) {
+func (cs *ClientSet) applyYAMLData(ctx context.Context, data []byte, sourceName, appName, clusterName string, createNamespace bool) ([]ResourceMetadata, []error) {
 	var appliedResources []ResourceMetadata
 	var applyErrors []error
 	decoder := yaml.NewDecodingSerializer(unstructured.UnstructuredJSONScheme)
@@ -296,10 +368,26 @@ func (cs *ClientSet) applyYAMLData(ctx context.Context, data []byte, sourceName,
 		var dr dynamic.ResourceInterface
 		if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
 			ns := unstructuredObj.GetNamespace()
-			if ns == "" {
-				ns = "default"
+
+			// Handle Namespace Enforcement or Defaulting
+			if cs.enforceNamespace && cs.defaultNamespace != "" {
+				if ns != "" && ns != cs.defaultNamespace {
+					cs.logger.Debug("Enforcing namespace override",
+						zap.String("original", ns),
+						zap.String("enforced", cs.defaultNamespace),
+						zap.String("kind", gvk.Kind),
+						zap.String("name", unstructuredObj.GetName()))
+				}
+				ns = cs.defaultNamespace
 				unstructuredObj.SetNamespace(ns)
-				cs.logger.Debug("Namespace not specified for namespaced resource, defaulting to 'default'",
+			} else if ns == "" {
+				ns = cs.defaultNamespace
+				if ns == "" {
+					ns = "default"
+				}
+				unstructuredObj.SetNamespace(ns)
+				cs.logger.Debug("Namespace not specified, using default",
+					zap.String("default", ns),
 					zap.String("kind", gvk.Kind),
 					zap.String("name", unstructuredObj.GetName()))
 			}
@@ -311,6 +399,14 @@ func (cs *ClientSet) applyYAMLData(ctx context.Context, data []byte, sourceName,
 				continue
 			}
 
+			if createNamespace {
+				if err := cs.ensureNamespace(ctx, ns); err != nil {
+					cs.logger.Error("Failed to ensure namespace", zap.String("namespace", ns), zap.Error(err))
+					applyErrors = append(applyErrors, fmt.Errorf("failed to ensure namespace %q: %w", ns, err))
+					continue
+				}
+			}
+
 			dr = cs.dynamicClient.Resource(mapping.Resource).Namespace(ns)
 		} else {
 			// cluster-scoped resources should not specify the namespace
@@ -318,7 +414,18 @@ func (cs *ClientSet) applyYAMLData(ctx context.Context, data []byte, sourceName,
 		}
 
 		// Try to get the resource
-		_, getErr := dr.Get(ctx, unstructuredObj.GetName(), metav1.GetOptions{})
+		existing, getErr := dr.Get(ctx, unstructuredObj.GetName(), metav1.GetOptions{})
+
+		if getErr == nil {
+			// Check for drift before updating
+			if cs.isDrifted(existing, unstructuredObj) {
+				cs.logger.Info("Drift detected, resolving...",
+					zap.String("kind", gvk.Kind),
+					zap.String("name", unstructuredObj.GetName()),
+					zap.String("namespace", unstructuredObj.GetNamespace()))
+				metrics.AppDriftTotal.WithLabelValues(appName, clusterName, gvk.Kind).Inc()
+			}
+		}
 
 		if getErr != nil {
 			// Resource does not exist, create it
@@ -458,6 +565,56 @@ func (cs *ClientSet) isNamespaceAllowed(ns string) bool {
 	}
 	for _, allowed := range cs.allowedNamespaces {
 		if allowed == ns {
+			return true
+		}
+	}
+	return false
+}
+
+func (cs *ClientSet) ensureNamespace(ctx context.Context, ns string) error {
+	if ns == "default" || ns == "" {
+		return nil
+	}
+
+	kubeClient, err := kubernetes.NewForConfig(cs.config)
+	if err != nil {
+		return err
+	}
+
+	_, err = kubeClient.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{})
+	if err == nil {
+		return nil
+	}
+
+	cs.logger.Info("Creating namespace", zap.String("namespace", ns))
+	_, err = kubeClient.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: ns,
+		},
+	}, metav1.CreateOptions{})
+	return err
+}
+
+func (cs *ClientSet) isDrifted(existing, target *unstructured.Unstructured) bool {
+	// Simple drift detection: compare 'spec' and 'data' and 'labels' and 'annotations'
+	// ignoring system fields like status, resourceVersion, etc.
+
+	fieldsToCompare := []string{"spec", "data", "stringData", "labels", "annotations"}
+	for _, field := range fieldsToCompare {
+		existingVal, ok1, _ := unstructured.NestedFieldNoCopy(existing.Object, field)
+		targetVal, ok2, _ := unstructured.NestedFieldNoCopy(target.Object, field)
+
+		if !ok1 && !ok2 {
+			continue
+		}
+		if ok1 != ok2 {
+			return true
+		}
+
+		// Deep equal comparison (simplified for MVP)
+		existingJSON, _ := json.Marshal(existingVal)
+		targetJSON, _ := json.Marshal(targetVal)
+		if string(existingJSON) != string(targetJSON) {
 			return true
 		}
 	}

@@ -61,10 +61,18 @@ func (h *Handler) Register(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusBadRequest, "Invalid interval format: "+err.Error())
 		}
 		existingApp.PollingInterval = parsedInterval
-		// Reset status/message/failures on update, assuming it's a re-registration
 		existingApp.Status = "Pending"
 		existingApp.Message = "Application updated, awaiting next sync."
 		existingApp.ConsecutiveFailures = 0
+
+		if req.Credentials != nil {
+			existingApp.Credentials = &appcore.GitCredentials{
+				Username: req.Credentials.Username,
+				Password: req.Credentials.Password,
+				SSHKey:   req.Credentials.SSHKey,
+				Token:    req.Credentials.Token,
+			}
+		}
 
 	} else {
 		// Create new application
@@ -83,6 +91,14 @@ func (h *Handler) Register(c echo.Context) error {
 			Status:              "Pending",
 			Message:             "Application registered, awaiting first sync.",
 			ConsecutiveFailures: 0,
+		}
+		if req.Credentials != nil {
+			newApp.Credentials = &appcore.GitCredentials{
+				Username: req.Credentials.Username,
+				Password: req.Credentials.Password,
+				SSHKey:   req.Credentials.SSHKey,
+				Token:    req.Credentials.Token,
+			}
 		}
 		h.apps.Add(newApp)
 	}

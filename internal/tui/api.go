@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -10,47 +11,83 @@ import (
 
 // AppResponse matches the JSON returned by GET /api/v1/applications
 type AppResponse struct {
-	Name                string `json:"name"`
-	RepoURL             string `json:"repo_url"`
-	Branch              string `json:"branch"`
-	Path                string `json:"path"`
-	ClusterName         string `json:"cluster_name"`
-	Interval            string `json:"interval"`
-	LastSyncedGitHash   string `json:"last_synced_git_hash"`
-	LatestGitHash       string `json:"latest_git_hash"`
-	Status              string `json:"status"`
-	Message             string `json:"message"`
-	ConsecutiveFailures int    `json:"consecutive_failures"`
-	SyncPolicy          string `json:"sync_policy"`
-	ApprovedGitHash     string `json:"approved_git_hash"`
+	Name                string       `json:"name"`
+	RepoURL             string       `json:"repo_url"`
+	Branch              string       `json:"branch"`
+	Path                string       `json:"path"`
+	ClusterName         string       `json:"cluster_name"`
+	Interval            string       `json:"interval"`
+	LastSyncedGitHash   string       `json:"last_synced_git_hash"`
+	LatestGitHash       string       `json:"latest_git_hash"`
+	Status              string       `json:"status"`
+	Message             string       `json:"message"`
+	ConsecutiveFailures int          `json:"consecutive_failures"`
+	SyncPolicy          string       `json:"sync_policy"`
+	ApprovedGitHash     string       `json:"approved_git_hash"`
+	MaxRetries          int          `json:"max_retries"`
+	InitialBackoff      string       `json:"initial_backoff"`
+	MaxBackoff          string       `json:"max_backoff"`
+	CreateNamespace     bool         `json:"create_namespace"`
+	DependsOn           []string     `json:"depends_on"`
+	Prune               bool         `json:"prune"`
+	SyncWindows         []SyncWindow `json:"sync_windows"`
+	WebhookURL          string       `json:"webhook_url"`
+	WebhookSecret       string       `json:"webhook_secret"`
+}
+
+type SyncWindow struct {
+	Start string   `json:"start"`
+	End   string   `json:"end"`
+	Days  []string `json:"days"`
+	Deny  bool     `json:"deny"`
 }
 
 // ClusterResponse matches the JSON returned by GET /api/v1/clusters
 type ClusterResponse struct {
-	Name           string    `json:"name"`
-	KubeconfigPath string    `json:"kubeconfig_path"`
-	RegisteredAt   time.Time `json:"registered_at"`
-	Status         string    `json:"status"`
-	Message        string    `json:"message"`
-	LastCheckedAt  time.Time `json:"last_checked_at"`
+	Name              string    `json:"name"`
+	KubeconfigPath    string    `json:"kubeconfig_path"`
+	RegisteredAt      time.Time `json:"registered_at"`
+	Status            string    `json:"status"`
+	Message           string    `json:"message"`
+	LastCheckedAt     time.Time `json:"last_checked_at"`
+	DefaultNamespace  string    `json:"default_namespace"`
+	EnforceNamespace  bool      `json:"enforce_namespace"`
+	AllowedNamespaces []string  `json:"allowed_namespaces"`
 }
 
 type apiClient struct {
 	baseURL   string
+	apiKey    string
 	client    *http.Client
 	sseClient *http.Client
 }
 
-func newAPIClient(baseURL string) *apiClient {
+func newAPIClient(baseURL, apiKey string) *apiClient {
 	return &apiClient{
 		baseURL:   baseURL,
+		apiKey:    apiKey,
 		client:    &http.Client{Timeout: 10 * time.Second},
 		sseClient: &http.Client{},
 	}
 }
 
+func (c *apiClient) newRequest(method, url string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		return nil, err
+	}
+	if c.apiKey != "" {
+		req.Header.Set("X-API-Key", c.apiKey)
+	}
+	return req, nil
+}
+
 func (c *apiClient) getApplications() ([]AppResponse, error) {
-	resp, err := c.client.Get(fmt.Sprintf("%s/api/v1/applications", c.baseURL))
+	req, err := c.newRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/applications", c.baseURL), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +105,11 @@ func (c *apiClient) getApplications() ([]AppResponse, error) {
 }
 
 func (c *apiClient) getClusters() ([]ClusterResponse, error) {
-	resp, err := c.client.Get(fmt.Sprintf("%s/api/v1/clusters", c.baseURL))
+	req, err := c.newRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/clusters", c.baseURL), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -86,10 +127,11 @@ func (c *apiClient) getClusters() ([]ClusterResponse, error) {
 }
 
 func (c *apiClient) syncApp(name string) error {
-	resp, err := c.client.Post(
-		fmt.Sprintf("%s/api/v1/applications/%s/sync", c.baseURL, name),
-		"application/json", nil,
-	)
+	req, err := c.newRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/applications/%s/sync", c.baseURL, name), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -98,7 +140,7 @@ func (c *apiClient) syncApp(name string) error {
 }
 
 func (c *apiClient) unregisterApp(name string) error {
-	req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/applications/%s", c.baseURL, name), nil)
+	req, err := c.newRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/applications/%s", c.baseURL, name), nil)
 	if err != nil {
 		return err
 	}
@@ -111,10 +153,11 @@ func (c *apiClient) unregisterApp(name string) error {
 }
 
 func (c *apiClient) checkCluster(name string) error {
-	resp, err := c.client.Post(
-		fmt.Sprintf("%s/api/v1/clusters/%s/check", c.baseURL, name),
-		"application/json", nil,
-	)
+	req, err := c.newRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/clusters/%s/check", c.baseURL, name), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -124,11 +167,16 @@ func (c *apiClient) checkCluster(name string) error {
 
 func (c *apiClient) approveApp(name, commitHash string) error {
 	payload, _ := json.Marshal(map[string]string{"commitHash": commitHash})
-	resp, err := c.client.Post(
+	req, err := c.newRequest(
+		http.MethodPost,
 		fmt.Sprintf("%s/api/v1/applications/%s/approve", c.baseURL, name),
-		"application/json",
 		strings.NewReader(string(payload)),
 	)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -137,7 +185,7 @@ func (c *apiClient) approveApp(name, commitHash string) error {
 }
 
 func (c *apiClient) unregisterCluster(name string) error {
-	req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/clusters/%s", c.baseURL, name), nil)
+	req, err := c.newRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/clusters/%s", c.baseURL, name), nil)
 	if err != nil {
 		return err
 	}
@@ -159,7 +207,11 @@ type Event struct {
 }
 
 func (c *apiClient) getHistory() ([]Event, error) {
-	resp, err := c.client.Get(fmt.Sprintf("%s/api/v1/events/history", c.baseURL))
+	req, err := c.newRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/events/history", c.baseURL), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, err
 	}

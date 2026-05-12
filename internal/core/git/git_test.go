@@ -53,7 +53,7 @@ func TestCloneOrPull(t *testing.T) {
 	defer func() { _ = os.RemoveAll(targetDir) }()
 
 	// 1. Test Clone
-	hash, err := CloneOrPull(context.Background(), logger, repoDir, "master", targetDir)
+	hash, err := CloneOrPull(context.Background(), logger, repoDir, "master", targetDir, AuthOptions{})
 	if err != nil {
 		t.Fatalf("CloneOrPull() error = %v", err)
 	}
@@ -62,7 +62,7 @@ func TestCloneOrPull(t *testing.T) {
 	}
 
 	// 2. Test Pull (Already up to date)
-	hash2, err := CloneOrPull(context.Background(), logger, repoDir, "master", targetDir)
+	hash2, err := CloneOrPull(context.Background(), logger, repoDir, "master", targetDir, AuthOptions{})
 	if err != nil {
 		t.Fatalf("CloneOrPull() (pull) error = %v", err)
 	}
@@ -98,12 +98,12 @@ func TestTempRepoDir(t *testing.T) {
 }
 
 func TestSetupAuthAndCleanupRepo(t *testing.T) {
-	if got := setupAuth("https://github.com/example/repo.git"); got != nil {
+	if got := setupAuth("https://github.com/example/repo.git", AuthOptions{}); got != nil {
 		t.Fatalf("expected nil auth for https public repos")
 	}
 
 	// Exercise SSH URL branch (may use SSH agent or fall back to nil auth).
-	_ = setupAuth("git@github.com:example/repo.git")
+	_ = setupAuth("git@github.com:example/repo.git", AuthOptions{})
 
 	tmpDir, err := os.MkdirTemp("", "cleanup-repo")
 	if err != nil {

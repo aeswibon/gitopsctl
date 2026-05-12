@@ -21,6 +21,34 @@ type RegisterRequest struct {
 	Cluster string `json:"cluster"`
 	// Interval is the frequency at which the application should be synced with the Git repository.
 	Interval string `json:"interval" validate:"required"`
+	// Credentials holds optional authentication information for private repositories.
+	Credentials *GitCredentialsRequest `json:"credentials"`
+	// MaxRetries is the maximum number of retry attempts for failed syncs.
+	MaxRetries int `json:"max_retries"`
+	// InitialBackoff is the initial delay between retries.
+	InitialBackoff string `json:"initial_backoff"`
+	// MaxBackoff is the maximum delay between retries.
+	MaxBackoff string `json:"max_backoff"`
+	// CreateNamespace enables automatic creation of the target namespace.
+	CreateNamespace bool `json:"create_namespace"`
+	// DependsOn lists the names of applications that must be healthy before this app syncs.
+	DependsOn []string `json:"depends_on"`
+	// Prune enables automatic deletion of resources removed from Git.
+	Prune bool `json:"prune"`
+	// SyncWindows defines time periods for allowed/disallowed synchronization.
+	SyncWindows []appcore.SyncWindow `json:"sync_windows"`
+	// WebhookURL is an optional URL to notify on sync events.
+	WebhookURL string `json:"webhook_url"`
+	// WebhookSecret is an optional secret for signing webhook payloads.
+	WebhookSecret string `json:"webhook_secret"`
+}
+
+// GitCredentialsRequest represents the Git authentication details in a request.
+type GitCredentialsRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	SSHKey   string `json:"ssh_key"`
+	Token    string `json:"token"`
 }
 
 // Response represents the response payload for application operations.
@@ -54,6 +82,24 @@ type Response struct {
 	ApprovedGitHash string `json:"approved_git_hash"`
 	// LastUpdated is the timestamp of the last update to the application's status.
 	LastUpdated string `json:"last_updated"`
+	// MaxRetries is the maximum number of retry attempts for failed syncs.
+	MaxRetries int `json:"max_retries"`
+	// InitialBackoff is the initial delay between retries.
+	InitialBackoff string `json:"initial_backoff"`
+	// MaxBackoff is the maximum delay between retries.
+	MaxBackoff string `json:"max_backoff"`
+	// CreateNamespace enables automatic creation of the target namespace.
+	CreateNamespace bool `json:"create_namespace"`
+	// DependsOn lists the names of applications that must be healthy before this app syncs.
+	DependsOn []string `json:"depends_on"`
+	// Prune enables automatic deletion of resources removed from Git.
+	Prune bool `json:"prune"`
+	// SyncWindows defines time periods for allowed/disallowed synchronization.
+	SyncWindows []appcore.SyncWindow `json:"sync_windows"`
+	// WebhookURL is an optional URL to notify on sync events.
+	WebhookURL string `json:"webhook_url"`
+	// WebhookSecret is an optional secret for signing webhook payloads.
+	WebhookSecret string `json:"webhook_secret"`
 }
 
 // SyncTriggerResponse represents the response for sync trigger requests.
@@ -78,5 +124,14 @@ func ConvertToResponse(app *appcore.Application) Response {
 		ConsecutiveFailures: app.ConsecutiveFailures,
 		SyncPolicy:          app.SyncPolicy,
 		ApprovedGitHash:     app.ApprovedGitHash,
+		MaxRetries:          app.MaxRetries,
+		InitialBackoff:      app.InitialBackoff,
+		MaxBackoff:          app.MaxBackoff,
+		CreateNamespace:     app.CreateNamespace,
+		DependsOn:           app.DependsOn,
+		Prune:               app.Prune,
+		SyncWindows:         app.SyncWindows,
+		WebhookURL:          app.WebhookURL,
+		WebhookSecret:       app.WebhookSecret,
 	}
 }

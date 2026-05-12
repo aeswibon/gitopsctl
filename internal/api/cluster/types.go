@@ -13,6 +13,12 @@ type RegisterRequest struct {
 	Name string `json:"name" validate:"required"`
 	// KubeconfigPath is the file path to the kubeconfig file for accessing the Kubernetes cluster.
 	KubeconfigPath string `json:"kubeconfig_path" validate:"required,kubeconfigfile"`
+	// DefaultNamespace is the namespace to use if none is specified, or to enforce.
+	DefaultNamespace string `json:"default_namespace"`
+	// EnforceNamespace if true, all namespaced resources will be forced into DefaultNamespace.
+	EnforceNamespace bool `json:"enforce_namespace"`
+	// AllowedNamespaces is a list of namespaces this cluster is restricted to.
+	AllowedNamespaces []string `json:"allowed_namespaces"`
 }
 
 // Response defines the structure for returning cluster details via the API.
@@ -30,6 +36,12 @@ type Response struct {
 	Message string `json:"message"`
 	// LastCheckedAt is the timestamp of the last health check performed on the cluster.
 	LastCheckedAt time.Time `json:"last_checked_at"`
+	// DefaultNamespace is the namespace to use if none is specified, or to enforce.
+	DefaultNamespace string `json:"default_namespace"`
+	// EnforceNamespace if true, all namespaced resources will be forced into DefaultNamespace.
+	EnforceNamespace bool `json:"enforce_namespace"`
+	// AllowedNamespaces is a list of namespaces this cluster is restricted to.
+	AllowedNamespaces []string `json:"allowed_namespaces"`
 }
 
 // HealthCheckTriggerResponse represents the response for health check trigger requests.
@@ -46,11 +58,14 @@ type ErrorResponse struct {
 // ConvertToResponse converts a Cluster to a Response.
 func ConvertToResponse(cl *clustercore.Cluster) Response {
 	return Response{
-		Name:           cl.Name,
-		KubeconfigPath: cl.KubeconfigPath,
-		RegisteredAt:   cl.RegisteredAt,
-		Status:         cl.Status,
-		Message:        cl.Message,
-		LastCheckedAt:  cl.LastCheckedAt,
+		Name:              cl.Name,
+		KubeconfigPath:    cl.KubeconfigPath,
+		RegisteredAt:      cl.RegisteredAt,
+		Status:            cl.Status,
+		Message:           cl.Message,
+		LastCheckedAt:     cl.LastCheckedAt,
+		DefaultNamespace:  cl.DefaultNamespace,
+		EnforceNamespace:  cl.EnforceNamespace,
+		AllowedNamespaces: cl.AllowedNamespaces,
 	}
 }
