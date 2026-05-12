@@ -46,10 +46,16 @@ func NewServer(logger *zap.Logger, apps *appcore.Applications, clusters *cluster
 	e.HidePort = true
 
 	e.Validator = NewCustomValidator()
-	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
-		Format: `{"time":"${time_rfc3339_nano}","id":"${id}","remote_ip":"${remote_ip}",` +
-			`"host":"${host}","method":"${method}","uri":"${uri}","status":${status}, "latency":"${latency_human}"` +
-			`,"bytes_in":${bytes_in},"bytes_out":${bytes_out}}` + "\n",
+	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
+		LogURI:    true,
+		LogStatus: true,
+		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
+			logger.Info("request",
+				zap.String("URI", v.URI),
+				zap.Int("status", v.Status),
+			)
+			return nil
+		},
 	}))
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
