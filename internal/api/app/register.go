@@ -61,10 +61,28 @@ func (h *Handler) Register(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusBadRequest, "Invalid interval format: "+err.Error())
 		}
 		existingApp.PollingInterval = parsedInterval
-		// Reset status/message/failures on update, assuming it's a re-registration
 		existingApp.Status = "Pending"
 		existingApp.Message = "Application updated, awaiting next sync."
 		existingApp.ConsecutiveFailures = 0
+
+		if req.Credentials != nil {
+			existingApp.Credentials = &appcore.GitCredentials{
+				Username: req.Credentials.Username,
+				Password: req.Credentials.Password,
+				SSHKey:   req.Credentials.SSHKey,
+				Token:    req.Credentials.Token,
+			}
+		}
+
+		existingApp.MaxRetries = req.MaxRetries
+		existingApp.InitialBackoff = req.InitialBackoff
+		existingApp.MaxBackoff = req.MaxBackoff
+		existingApp.CreateNamespace = req.CreateNamespace
+		existingApp.DependsOn = req.DependsOn
+		existingApp.Prune = req.Prune
+		existingApp.SyncWindows = req.SyncWindows
+		existingApp.WebhookURL = req.WebhookURL
+		existingApp.WebhookSecret = req.WebhookSecret
 
 	} else {
 		// Create new application
@@ -83,6 +101,23 @@ func (h *Handler) Register(c echo.Context) error {
 			Status:              "Pending",
 			Message:             "Application registered, awaiting first sync.",
 			ConsecutiveFailures: 0,
+			MaxRetries:          req.MaxRetries,
+			InitialBackoff:      req.InitialBackoff,
+			MaxBackoff:          req.MaxBackoff,
+			CreateNamespace:     req.CreateNamespace,
+			DependsOn:           req.DependsOn,
+			Prune:               req.Prune,
+			SyncWindows:         req.SyncWindows,
+			WebhookURL:          req.WebhookURL,
+			WebhookSecret:       req.WebhookSecret,
+		}
+		if req.Credentials != nil {
+			newApp.Credentials = &appcore.GitCredentials{
+				Username: req.Credentials.Username,
+				Password: req.Credentials.Password,
+				SSHKey:   req.Credentials.SSHKey,
+				Token:    req.Credentials.Token,
+			}
 		}
 		h.apps.Add(newApp)
 	}

@@ -11,7 +11,7 @@ import (
 func TestRegister_ClusterNotFound(t *testing.T) {
 	h, e, _, _ := newTestHandler()
 
-	body := `{"name":"a1","repo_url":"https://github.com/org/repo.git","branch":"main","path":"manifests","cluster":"missing","interval":"1m"}`
+	body := `{"name":"a1","repo_url":"https://github.com/org/repo.git","branch":"main","path":"manifests","cluster_name":"missing","interval":"1m"}`
 	c, rec := newJSONContext(e, http.MethodPost, "/applications", body)
 	if err := h.Register(c); err == nil {
 		t.Fatal("expected error when cluster missing")
@@ -37,7 +37,7 @@ func TestRegister_InvalidInterval(t *testing.T) {
 	h, e, apps, clusters := newTestHandler()
 	clusters.Add(&clustercore.Cluster{Name: "c1"})
 
-	body := `{"name":"a1","repo_url":"https://github.com/org/repo.git","branch":"main","path":"manifests","cluster":"c1","interval":"not-a-duration"}`
+	body := `{"name":"a1","repo_url":"https://github.com/org/repo.git","branch":"main","path":"manifests","cluster_name":"c1","interval":"not-a-duration"}`
 	c, rec := newJSONContext(e, http.MethodPost, "/applications", body)
 	err := h.Register(c)
 	if err == nil {
@@ -52,7 +52,7 @@ func TestRegister_UpdatesExistingApp(t *testing.T) {
 	clusters.Add(&clustercore.Cluster{Name: "c1"})
 	apps.Add(&appcore.Application{Name: "a1", RepoURL: "https://github.com/old/old.git", Branch: "main", Path: "p", ClusterName: "c1", Interval: "5m"})
 
-	body := `{"name":"a1","repo_url":"https://github.com/new/repo.git","branch":"develop","path":"deploy","cluster":"c1","interval":"10m"}`
+	body := `{"name":"a1","repo_url":"https://github.com/new/repo.git","branch":"develop","path":"deploy","cluster_name":"c1","interval":"10m"}`
 	c, rec := newJSONContext(e, http.MethodPost, "/applications", body)
 	if err := h.Register(c); err != nil {
 		t.Fatalf("Register() error = %v", err)

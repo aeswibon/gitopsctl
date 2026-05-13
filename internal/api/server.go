@@ -36,11 +36,13 @@ type Server struct {
 	stream *events.StreamSink
 	// history is an in-memory ring buffer for recent events.
 	history *events.HistorySink
+	// apiKey is the key required for accessing authenticated API endpoints.
+	apiKey string
 }
 
 // NewServer creates a new API server instance.
 // It initializes the Echo instance, sets up middleware, and registers routes.
-func NewServer(logger *zap.Logger, apps *appcore.Applications, clusters *clustercore.Clusters, ctrl *controller.Controller, stream *events.StreamSink, history *events.HistorySink) *Server {
+func NewServer(logger *zap.Logger, apps *appcore.Applications, clusters *clustercore.Clusters, ctrl *controller.Controller, stream *events.StreamSink, history *events.HistorySink, apiKey string) *Server {
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
@@ -68,6 +70,7 @@ func NewServer(logger *zap.Logger, apps *appcore.Applications, clusters *cluster
 		controller: ctrl,
 		stream:     stream,
 		history:    history,
+		apiKey:     apiKey,
 	}
 
 	s.registerRoutes()
@@ -78,6 +81,19 @@ func NewServer(logger *zap.Logger, apps *appcore.Applications, clusters *cluster
 // It sets up the routes for managing applications, health checks, and other API functionalities.
 func (s *Server) registerRoutes() {
 	v1 := s.e.Group("/api/v1")
+
+	// Add API Key middleware if a key is configured
+	if s.apiKey != "" {
+		v1.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				key := c.Request().Header.Get("X-API-Key")
+				if key != s.apiKey {
+					return echo.NewHTTPError(http.StatusUnauthorized, "invalid api key")
+				}
+				return next(c)
+			}
+		})
+	}
 
 	appHandler := app.NewHandler(s.logger, s.apps, s.clusters, s.controller)
 	clusterHandler := cluster.NewHandler(s.logger, s.clusters, s.apps, s.controller)

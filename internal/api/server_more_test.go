@@ -17,7 +17,7 @@ func TestServer_StreamEvents_NotImplementedWithoutSink(t *testing.T) {
 	apps := appcore.NewApplications()
 	clusters := clustercore.NewClusters()
 	ctrl := controller.NewController(logger, apps, clusters)
-	s := NewServer(logger, apps, clusters, ctrl, nil, nil)
+	s := NewServer(logger, apps, clusters, ctrl, nil, nil, "")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil)
 	rec := httptest.NewRecorder()
@@ -35,7 +35,7 @@ func TestServer_StartAndStop_Methods(t *testing.T) {
 	apps := appcore.NewApplications()
 	clusters := clustercore.NewClusters()
 	ctrl := controller.NewController(logger, apps, clusters)
-	s := NewServer(logger, apps, clusters, ctrl, nil, nil)
+	s := NewServer(logger, apps, clusters, ctrl, nil, nil, "")
 
 	// invalid address should produce an error and still cover Start path.
 	if err := s.Start("invalid-address"); err == nil {

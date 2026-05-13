@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"go.uber.org/zap"
@@ -53,7 +54,7 @@ func TestCloneOrPull(t *testing.T) {
 	defer func() { _ = os.RemoveAll(targetDir) }()
 
 	// 1. Test Clone
-	hash, err := CloneOrPull(context.Background(), logger, repoDir, "master", targetDir)
+	hash, err := CloneOrPull(context.Background(), logger, repoDir, "master", targetDir, AuthOptions{})
 	if err != nil {
 		t.Fatalf("CloneOrPull() error = %v", err)
 	}
@@ -62,7 +63,7 @@ func TestCloneOrPull(t *testing.T) {
 	}
 
 	// 2. Test Pull (Already up to date)
-	hash2, err := CloneOrPull(context.Background(), logger, repoDir, "master", targetDir)
+	hash2, err := CloneOrPull(context.Background(), logger, repoDir, "master", targetDir, AuthOptions{})
 	if err != nil {
 		t.Fatalf("CloneOrPull() (pull) error = %v", err)
 	}
@@ -97,14 +98,53 @@ func TestTempRepoDir(t *testing.T) {
 	}
 }
 
-func TestSetupAuthAndCleanupRepo(t *testing.T) {
-	if got := setupAuth("https://github.com/example/repo.git"); got != nil {
-		t.Fatalf("expected nil auth for https public repos")
+func TestSetupAuth_Scenarios(t *testing.T) {
+	// 1. Token auth
+	auth := setupAuth("https://github.com/org/repo.git", AuthOptions{Token: "test-token"})
+	if auth == nil {
+		t.Fatal("expected non-nil auth for token")
+	}
+	if !strings.Contains(auth.String(), "oauth2") {
+		t.Errorf("unexpected auth string: %s", auth.String())
 	}
 
-	// Exercise SSH URL branch (may use SSH agent or fall back to nil auth).
-	_ = setupAuth("git@github.com:example/repo.git")
+	// 2. Basic auth
+	auth = setupAuth("https://github.com/org/repo.git", AuthOptions{Username: "user", Password: "pass"})
+	if auth == nil {
+		t.Fatal("expected non-nil auth for basic auth")
+	}
+	if !strings.Contains(auth.String(), "user") {
+		t.Errorf("unexpected auth string: %s", auth.String())
+	}
+}
 
+func TestCloneOrPull_Errors(t *testing.T) {
+	logger := zap.NewNop()
+	ctx := context.Background()
+
+	tmpDir, _ := os.MkdirTemp("", "git-error")
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	// 1. Invalid URL
+	_, err := CloneOrPull(ctx, logger, "not-a-url", "master", tmpDir, AuthOptions{})
+	if err == nil {
+		t.Error("expected error for invalid URL")
+	}
+
+	// 2. Invalid branch
+	repoDir := createDummyRepo(t)
+	defer func() { _ = os.RemoveAll(repoDir) }()
+
+	targetDir, _ := os.MkdirTemp("", "git-branch-error")
+	defer func() { _ = os.RemoveAll(targetDir) }()
+
+	_, err = CloneOrPull(ctx, logger, repoDir, "invalid-branch", targetDir, AuthOptions{})
+	if err == nil {
+		t.Error("expected error for invalid branch")
+	}
+}
+
+func TestCleanUpRepo(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "cleanup-repo")
 	if err != nil {
 		t.Fatal(err)
@@ -113,6 +153,6 @@ func TestSetupAuthAndCleanupRepo(t *testing.T) {
 		t.Fatalf("CleanUpRepo() error = %v", err)
 	}
 	if _, err := os.Stat(tmpDir); !os.IsNotExist(err) {
-		t.Fatalf("expected cleaned directory to be removed, stat err=%v", err)
+		t.Fatalf("expected cleaned directory to be removed")
 	}
 }

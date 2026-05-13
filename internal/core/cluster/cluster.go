@@ -30,6 +30,8 @@ type Cluster struct {
 	Message           string    `json:"message,omitempty"`
 	LastCheckedAt     time.Time `json:"last_checked_at,omitempty"`
 	AllowedNamespaces []string  `json:"allowed_namespaces,omitempty"`
+	DefaultNamespace  string    `json:"default_namespace,omitempty"`
+	EnforceNamespace  bool      `json:"enforce_namespace,omitempty"`
 }
 
 // Clusters represents a thread-safe collection of Cluster objects.

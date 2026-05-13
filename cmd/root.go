@@ -22,6 +22,8 @@ var (
 	eventsWebhookRetry   int
 	eventsWebhookBackoff time.Duration
 	eventsWebhookTimeout time.Duration
+	// apiAuthKey is the API Key used for authenticating with the gitopsctl API.
+	apiAuthKey string
 )
 
 var rootCmd = &cobra.Command{
@@ -81,5 +83,6 @@ func init() {
 	rootCmd.PersistentFlags().IntVar(&eventsWebhookRetry, "events-webhook-retries", 2, "Number of webhook retry attempts for transient failures")
 	rootCmd.PersistentFlags().DurationVar(&eventsWebhookBackoff, "events-webhook-backoff", 750*time.Millisecond, "Base backoff duration between webhook retries")
 	rootCmd.PersistentFlags().DurationVar(&eventsWebhookTimeout, "events-webhook-timeout", 12*time.Second, "HTTP timeout per webhook request")
+	rootCmd.PersistentFlags().StringVar(&apiAuthKey, "api-key", "", "API Key for authenticating with the gitopsctl API (or configuring the server in 'start')")
 	rootCmd.AddCommand(startCmd)
 }

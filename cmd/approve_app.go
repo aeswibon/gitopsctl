@@ -47,6 +47,9 @@ This is used when the application's sync policy is set to 'manual'.`,
 			return err
 		}
 		req.Header.Set("Content-Type", "application/json")
+		if apiAuthKey != "" {
+			req.Header.Set("X-API-Key", apiAuthKey)
+		}
 
 		resp, err := client.Do(req)
 		if err != nil {

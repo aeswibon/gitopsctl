@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
@@ -74,13 +75,13 @@ func TestApplyYAMLData_Validation(t *testing.T) {
 	}
 
 	// Test with empty data
-	_, errors := cs.applyYAMLData(context.Background(), []byte(""), "test", "app1", "cluster1")
+	_, errors := cs.applyYAMLData(context.Background(), []byte(""), "test", "app1", "cluster1", false)
 	if len(errors) != 0 {
 		t.Errorf("Expected 0 errors for empty data, got %d", len(errors))
 	}
 
 	// Test with invalid YAML
-	_, errors = cs.applyYAMLData(context.Background(), []byte("invalid: yaml: :"), "test", "app1", "cluster1")
+	_, errors = cs.applyYAMLData(context.Background(), []byte("invalid: yaml: :"), "test", "app1", "cluster1", false)
 	if len(errors) == 0 {
 		t.Error("Expected error for invalid YAML, got 0")
 	}
@@ -89,7 +90,7 @@ func TestApplyYAMLData_Validation(t *testing.T) {
 func TestNewClientSet_EmptyPath(t *testing.T) {
 	logger := zap.NewNop()
 	// This will try to load from home dir, might fail but we check if it handles empty path
-	_, _ = NewClientSet(logger, "", nil)
+	_, _ = NewClientSet(logger, "", nil, "", false)
 }
 
 func TestHasHelmChart_YmlVariant(t *testing.T) {
@@ -138,7 +139,7 @@ func TestApplyManifests_RawYamlWithDecodeError(t *testing.T) {
 	}
 
 	cs := &ClientSet{logger: zap.NewNop()}
-	_, errs := cs.ApplyManifests(context.Background(), tmpDir, "app1", "cluster1")
+	_, errs := cs.ApplyManifests(context.Background(), tmpDir, "app1", "cluster1", false, nil, false)
 	if len(errs) == 0 {
 		t.Fatal("expected at least one apply error for invalid YAML")
 	}
@@ -180,7 +181,7 @@ users:
 		t.Fatal(err)
 	}
 
-	cs, err := NewClientSet(zap.NewNop(), kcfg, nil)
+	cs, err := NewClientSet(zap.NewNop(), kcfg, nil, "", false)
 	if err != nil {
 		t.Fatalf("NewClientSet: %v", err)
 	}
@@ -199,7 +200,7 @@ metadata:
 data:
   key: value
 `)
-	_, errs := cs.applyYAMLData(context.Background(), yamlData, "inline", "app1", "cluster1")
+	_, errs := cs.applyYAMLData(context.Background(), yamlData, "inline", "app1", "cluster1", false)
 	if len(errs) == 0 {
 		t.Fatal("expected error for unnamed resource")
 	}
@@ -217,7 +218,7 @@ data:
   key: first
 `)
 
-	if _, errs := cs.applyYAMLData(ctx, first, "inline", "app1", "cluster1"); len(errs) != 0 {
+	if _, errs := cs.applyYAMLData(ctx, first, "inline", "app1", "cluster1", false); len(errs) != 0 {
 		t.Fatalf("expected create to succeed, got %v", errs)
 	}
 
@@ -239,7 +240,7 @@ metadata:
 data:
   key: second
 `)
-	if _, errs := cs.applyYAMLData(ctx, second, "inline", "app1", "cluster1"); len(errs) != 0 {
+	if _, errs := cs.applyYAMLData(ctx, second, "inline", "app1", "cluster1", false); len(errs) != 0 {
 		t.Fatalf("expected update to succeed, got %v", errs)
 	}
 
@@ -260,7 +261,7 @@ kind: Namespace
 metadata:
   name: staging
 `)
-	if _, errs := cs.applyYAMLData(context.Background(), yamlData, "inline", "app1", "cluster1"); len(errs) != 0 {
+	if _, errs := cs.applyYAMLData(context.Background(), yamlData, "inline", "app1", "cluster1", false); len(errs) != 0 {
 		t.Fatalf("expected namespace apply to succeed, got %v", errs)
 	}
 }
@@ -286,7 +287,7 @@ data:
 		t.Fatal(err)
 	}
 
-	if _, errs := fakeClientSet().ApplyManifests(context.Background(), tmpDir, "app1", "cluster1"); len(errs) != 0 {
+	if _, errs := fakeClientSet().ApplyManifests(context.Background(), tmpDir, "app1", "cluster1", false, nil, false); len(errs) != 0 {
 		t.Fatalf("expected raw manifest apply to succeed, got %v", errs)
 	}
 }
@@ -312,7 +313,7 @@ data:
 		t.Fatal(err)
 	}
 
-	if _, errs := fakeClientSet().ApplyManifests(context.Background(), tmpDir, "app1", "cluster1"); len(errs) != 0 {
+	if _, errs := fakeClientSet().ApplyManifests(context.Background(), tmpDir, "app1", "cluster1", false, nil, false); len(errs) != 0 {
 		t.Fatalf("expected kustomize apply to succeed, got %v", errs)
 	}
 }
@@ -326,7 +327,7 @@ func TestApplyManifests_HelmLoadFailure(t *testing.T) {
 		t.Fatalf("failed writing chart: %v", err)
 	}
 	cs := &ClientSet{logger: zap.NewNop()}
-	_, _ = cs.ApplyManifests(context.Background(), tmpDir, "app1", "cluster1")
+	_, _ = cs.ApplyManifests(context.Background(), tmpDir, "app1", "cluster1", false, nil, false)
 }
 
 func TestApplyManifests_KustomizeBuildFailure(t *testing.T) {
@@ -337,7 +338,7 @@ func TestApplyManifests_KustomizeBuildFailure(t *testing.T) {
 		t.Fatalf("failed writing kustomization file: %v", err)
 	}
 	cs := &ClientSet{logger: zap.NewNop()}
-	_, errs := cs.ApplyManifests(context.Background(), tmpDir, "app1", "cluster1")
+	_, errs := cs.ApplyManifests(context.Background(), tmpDir, "app1", "cluster1", false, nil, false)
 	if len(errs) == 0 {
 		t.Fatal("expected kustomize build error")
 	}
@@ -355,7 +356,7 @@ metadata:
   name: sample
   namespace: forbidden
 `)
-	_, errs := cs.applyYAMLData(context.Background(), badYaml, "test", "app1", "cluster1")
+	_, errs := cs.applyYAMLData(context.Background(), badYaml, "test", "app1", "cluster1", false)
 	if len(errs) == 0 {
 		t.Fatal("expected error for forbidden namespace in applyYAMLData")
 	}
@@ -371,7 +372,7 @@ metadata:
   name: sample
   namespace: allowed
 `)
-	_, errs = cs.applyYAMLData(context.Background(), goodYaml, "test", "app1", "cluster1")
+	_, errs = cs.applyYAMLData(context.Background(), goodYaml, "test", "app1", "cluster1", false)
 	if len(errs) != 0 {
 		t.Fatalf("expected success for allowed namespace, got %v", errs)
 	}
@@ -394,5 +395,235 @@ metadata:
 	})
 	if err != nil {
 		t.Fatalf("expected success for allowed namespace in GetResourceHealth, got %v", err)
+	}
+}
+
+func TestPruneResources(t *testing.T) {
+	cs := fakeClientSet()
+	ctx := context.Background()
+
+	// 1. Create two resources
+	r1 := []byte(`
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keep-me
+  namespace: default
+`)
+	r2 := []byte(`
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: delete-me
+  namespace: default
+`)
+
+	applied1, errs := cs.applyYAMLData(ctx, r1, "r1", "app", "cluster", false)
+	if len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	applied2, errs := cs.applyYAMLData(ctx, r2, "r2", "app", "cluster", false)
+	if len(errs) != 0 {
+		t.Fatal(errs)
+	}
+
+	previous := append(applied1, applied2...)
+
+	// Verify both exist
+	gvr := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}
+	if _, err := cs.dynamicClient.Resource(gvr).Namespace("default").Get(ctx, "keep-me", metav1.GetOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cs.dynamicClient.Resource(gvr).Namespace("default").Get(ctx, "delete-me", metav1.GetOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Prune: only r1 is currently applied
+	pruneErrs := cs.pruneResources(ctx, previous, applied1, "app", "cluster")
+	if len(pruneErrs) != 0 {
+		t.Fatal(pruneErrs)
+	}
+
+	// 3. Verify: keep-me exists, delete-me is gone
+	if _, err := cs.dynamicClient.Resource(gvr).Namespace("default").Get(ctx, "keep-me", metav1.GetOptions{}); err != nil {
+		t.Fatal("keep-me should still exist")
+	}
+	if _, err := cs.dynamicClient.Resource(gvr).Namespace("default").Get(ctx, "delete-me", metav1.GetOptions{}); err == nil {
+		t.Fatal("delete-me should have been pruned")
+	}
+}
+
+func TestIsDrifted(t *testing.T) {
+	cs := &ClientSet{}
+
+	existing := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name": "test",
+			},
+			"data": map[string]interface{}{
+				"foo": "bar",
+			},
+		},
+	}
+
+	target := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name": "test",
+			},
+			"data": map[string]interface{}{
+				"foo": "baz", // Drift!
+			},
+		},
+	}
+
+	if !cs.isDrifted(existing, target) {
+		t.Error("Expected drift detection to return true")
+	}
+
+	target.Object["data"] = map[string]interface{}{"foo": "bar"}
+	if cs.isDrifted(existing, target) {
+		t.Error("Expected drift detection to return false for identical data")
+	}
+}
+
+func TestGetResourceHealth_Deployment(t *testing.T) {
+	cs := fakeClientSet()
+	ctx := context.Background()
+
+	gvk := schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}
+	gvr := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
+	cs.mapper.(*meta.DefaultRESTMapper).AddSpecific(gvk, gvr, gvr, meta.RESTScopeNamespace)
+
+	// 1. Healthy Deployment
+	obj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"metadata": map[string]interface{}{
+				"name":      "dep1",
+				"namespace": "default",
+			},
+			"status": map[string]interface{}{
+				"replicas":          int64(3),
+				"readyReplicas":     int64(3),
+				"updatedReplicas":   int64(3),
+				"availableReplicas": int64(3),
+			},
+		},
+	}
+	_, _ = cs.dynamicClient.Resource(gvr).Namespace("default").Create(ctx, obj, metav1.CreateOptions{})
+
+	status, msg, err := cs.GetResourceHealth(ctx, ResourceMetadata{Group: "apps", Version: "v1", Kind: "Deployment", Name: "dep1", Namespace: "default"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != "Healthy" {
+		t.Errorf("expected Healthy, got %s: %s", status, msg)
+	}
+
+	// 2. Progressing Deployment
+	obj.Object["status"].(map[string]interface{})["availableReplicas"] = int64(1)
+	_, _ = cs.dynamicClient.Resource(gvr).Namespace("default").Update(ctx, obj, metav1.UpdateOptions{})
+
+	status, _, _ = cs.GetResourceHealth(ctx, ResourceMetadata{Group: "apps", Version: "v1", Kind: "Deployment", Name: "dep1", Namespace: "default"})
+	if status != "Progressing" {
+		t.Errorf("expected Progressing, got %s", status)
+	}
+}
+
+func TestGetResourceHealth_Pod(t *testing.T) {
+	cs := fakeClientSet()
+	ctx := context.Background()
+
+	gvk := schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"}
+	gvr := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
+	cs.mapper.(*meta.DefaultRESTMapper).AddSpecific(gvk, gvr, gvr, meta.RESTScopeNamespace)
+
+	// 1. Running Pod
+	obj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "Pod",
+			"metadata": map[string]interface{}{
+				"name":      "pod1",
+				"namespace": "default",
+			},
+			"status": map[string]interface{}{
+				"phase": "Running",
+			},
+		},
+	}
+	_, _ = cs.dynamicClient.Resource(gvr).Namespace("default").Create(ctx, obj, metav1.CreateOptions{})
+
+	status, _, _ := cs.GetResourceHealth(ctx, ResourceMetadata{Kind: "Pod", Name: "pod1", Namespace: "default"})
+	if status != "Healthy" {
+		t.Errorf("expected Healthy, got %s", status)
+	}
+
+	// 2. Failed Pod
+	obj.Object["status"].(map[string]interface{})["phase"] = "Failed"
+	_, _ = cs.dynamicClient.Resource(gvr).Namespace("default").Update(ctx, obj, metav1.UpdateOptions{})
+
+	status, _, _ = cs.GetResourceHealth(ctx, ResourceMetadata{Kind: "Pod", Name: "pod1", Namespace: "default"})
+	if status != "Degraded" {
+		t.Errorf("expected Degraded, got %s", status)
+	}
+}
+
+func TestIsNamespaceAllowed(t *testing.T) {
+	cs := &ClientSet{}
+
+	// 1. empty means all allowed
+	if !cs.isNamespaceAllowed("any") {
+		t.Error("expected any namespace to be allowed when list is empty")
+	}
+
+	// 2. restriction
+	cs.allowedNamespaces = []string{"prod", "staging"}
+	if !cs.isNamespaceAllowed("prod") {
+		t.Error("expected prod to be allowed")
+	}
+	if cs.isNamespaceAllowed("dev") {
+		t.Error("expected dev to be forbidden")
+	}
+}
+
+func TestEnsureNamespace_Default(t *testing.T) {
+	cs := &ClientSet{}
+	if err := cs.ensureNamespace(context.Background(), "default"); err != nil {
+		t.Fatalf("ensureNamespace(default) should not return error: %v", err)
+	}
+	if err := cs.ensureNamespace(context.Background(), ""); err != nil {
+		t.Fatalf("ensureNamespace('') should not return error: %v", err)
+	}
+}
+
+func TestApplyYAMLData_NamespaceEnforcement(t *testing.T) {
+	cs := fakeClientSet()
+	cs.enforceNamespace = true
+	cs.defaultNamespace = "enforced-ns"
+
+	yamlData := []byte(`
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-cm
+  namespace: original-ns
+data:
+  foo: bar
+`)
+
+	applied, errs := cs.applyYAMLData(context.Background(), yamlData, "test", "app", "cluster", false)
+	if len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	if applied[0].Namespace != "enforced-ns" {
+		t.Errorf("expected namespace enforced-ns, got %s", applied[0].Namespace)
 	}
 }

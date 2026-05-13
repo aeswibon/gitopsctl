@@ -23,6 +23,8 @@ var (
 	dryRunCluster         bool     // Preview registration without applying
 	testConnection        bool     // Test cluster connectivity during registration
 	allowedNamespaces     []string // List of allowed namespaces
+	defaultNamespace      string   // Default namespace for the cluster
+	enforceNamespace      bool     // Enforce the default namespace
 )
 
 // clusterRegistrationConfig holds validated configuration for cluster registration
@@ -31,6 +33,8 @@ type clusterRegistrationConfig struct {
 	kubeconfigPath string
 	resolvedPath   string
 	namespaces     []string
+	defaultNS      string
+	enforceNS      bool
 }
 
 var registerClusterCmd = &cobra.Command{
@@ -136,6 +140,13 @@ func validateAndNormalizeClusterInput() (*clusterRegistrationConfig, error) {
 	}
 	config.resolvedPath = absPath
 	config.namespaces = allowedNamespaces
+	config.defaultNS = strings.TrimSpace(defaultNamespace)
+	config.enforceNS = enforceNamespace
+
+	if config.enforceNS && config.defaultNS == "" {
+		return nil, fmt.Errorf("--enforce-namespace requires --default-namespace to be set")
+	}
+
 	return config, nil
 }
 
@@ -186,6 +197,8 @@ func createClusterConfig(config *clusterRegistrationConfig) *clustercore.Cluster
 		Status:            status,
 		Message:           message,
 		AllowedNamespaces: config.namespaces,
+		DefaultNamespace:  config.defaultNS,
+		EnforceNamespace:  config.enforceNS,
 	}
 }
 
@@ -204,6 +217,10 @@ func displayDryRunClusterSummary(newCluster *clustercore.Cluster, isUpdate bool)
 	fmt.Printf("  Message:     %s\n", newCluster.Message)
 	if len(newCluster.AllowedNamespaces) > 0 {
 		fmt.Printf("  Allowed NS:  %s\n", strings.Join(newCluster.AllowedNamespaces, ", "))
+	}
+	if newCluster.DefaultNamespace != "" {
+		fmt.Printf("  Default NS:  %s\n", newCluster.DefaultNamespace)
+		fmt.Printf("  Enforce NS:  %v\n", newCluster.EnforceNamespace)
 	}
 	fmt.Printf("\nTo apply these changes, run the command again without --dry-run\n")
 
@@ -239,6 +256,9 @@ func saveAndConfirmCluster(newCluster *clustercore.Cluster, isUpdate bool) error
 	if len(newCluster.AllowedNamespaces) > 0 {
 		fmt.Printf("  Allowed NS: %s\n", strings.Join(newCluster.AllowedNamespaces, ", "))
 	}
+	if newCluster.DefaultNamespace != "" {
+		fmt.Printf("  Default NS: %s (Enforce: %v)\n", newCluster.DefaultNamespace, newCluster.EnforceNamespace)
+	}
 
 	fmt.Printf("\nNext steps:\n")
 	fmt.Printf("  • List clusters: gitopsctl list-clusters\n")
@@ -271,6 +291,8 @@ func init() {
 	registerClusterCmd.Flags().BoolVar(&dryRunCluster, "dry-run", false, "Preview registration without applying changes")
 	registerClusterCmd.Flags().BoolVar(&testConnection, "test", false, "Test cluster connectivity during registration")
 	registerClusterCmd.Flags().StringSliceVar(&allowedNamespaces, "allowed-namespaces", []string{}, "Comma-separated list of namespaces this cluster is restricted to")
+	registerClusterCmd.Flags().StringVar(&defaultNamespace, "default-namespace", "", "Default namespace for this cluster")
+	registerClusterCmd.Flags().BoolVar(&enforceNamespace, "enforce-namespace", false, "Enforce that all resources are applied to the default namespace")
 
 	_ = registerClusterCmd.MarkFlagRequired("name")
 	_ = registerClusterCmd.RegisterFlagCompletionFunc("kubeconfig", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {

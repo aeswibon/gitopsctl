@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadSaveApplications(t *testing.T) {
@@ -116,5 +117,107 @@ func TestApplication_ToTable(t *testing.T) {
 	// Headers for details: NAME, REPO URL, BRANCH, PATH, CLUSTER, INTERVAL, STATUS, SYNC POLICY, LAST SYNCED HASH, FAILURES, MESSAGE
 	if len(rowDetails) != 11 {
 		t.Errorf("Expected 11 columns in details table, got %d", len(rowDetails))
+	}
+}
+
+func TestIsSyncAllowed(t *testing.T) {
+	// 2026-05-11 is a Monday
+	baseTime := time.Date(2026, 5, 11, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name          string
+		windows       []SyncWindow
+		now           time.Time
+		expectAllowed bool
+	}{
+		{
+			name:          "No windows",
+			windows:       nil,
+			now:           baseTime,
+			expectAllowed: true,
+		},
+		{
+			name: "In allowed window",
+			windows: []SyncWindow{
+				{Start: "10:00", End: "14:00", Days: []string{"Monday"}, TimeZone: "UTC"},
+			},
+			now:           baseTime,
+			expectAllowed: true,
+		},
+		{
+			name: "Outside allowed window (time)",
+			windows: []SyncWindow{
+				{Start: "14:00", End: "16:00", Days: []string{"Monday"}, TimeZone: "UTC"},
+			},
+			now:           baseTime,
+			expectAllowed: false,
+		},
+		{
+			name: "Outside allowed window (day)",
+			windows: []SyncWindow{
+				{Start: "10:00", End: "14:00", Days: []string{"Tuesday"}, TimeZone: "UTC"},
+			},
+			now:           baseTime,
+			expectAllowed: false,
+		},
+		{
+			name: "In blackout window",
+			windows: []SyncWindow{
+				{Start: "10:00", End: "14:00", Deny: true, TimeZone: "UTC"},
+			},
+			now:           baseTime,
+			expectAllowed: false,
+		},
+		{
+			name: "Allowed window but also blackout window",
+			windows: []SyncWindow{
+				{Start: "08:00", End: "17:00", Deny: false, TimeZone: "UTC"},
+				{Start: "11:00", End: "13:00", Deny: true, TimeZone: "UTC"},
+			},
+			now:           baseTime,
+			expectAllowed: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &Application{SyncWindows: tt.windows}
+			allowed, _ := a.IsSyncAllowed(tt.now)
+			if allowed != tt.expectAllowed {
+				t.Errorf("IsSyncAllowed() = %v, want %v", allowed, tt.expectAllowed)
+			}
+		})
+	}
+}
+
+func TestLoadApplications_Durations(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "app-dur-test")
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+	tmpFile := filepath.Join(tmpDir, "apps.json")
+
+	content := `[
+		{
+			"name": "dur-app",
+			"interval": "10m",
+			"initial_backoff": "1s",
+			"max_backoff": "1h"
+		}
+	]`
+	_ = os.WriteFile(tmpFile, []byte(content), 0644)
+
+	apps, err := LoadApplications(tmpFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	a, _ := apps.Get("dur-app")
+	if a.PollingInterval != 10*time.Minute {
+		t.Errorf("Expected 10m, got %v", a.PollingInterval)
+	}
+	if a.RetryBackoff != time.Second {
+		t.Errorf("Expected 1s, got %v", a.RetryBackoff)
+	}
+	if a.MaxRetryBackoff != time.Hour {
+		t.Errorf("Expected 1h, got %v", a.MaxRetryBackoff)
 	}
 }

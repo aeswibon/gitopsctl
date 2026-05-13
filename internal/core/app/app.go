@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,6 +38,112 @@ type Application struct {
 	WebhookURL          string             `json:"webhook_url,omitempty"`
 	WebhookSecret       string             `json:"webhook_secret,omitempty"`
 	AppliedResources    []ResourceMetadata `json:"applied_resources,omitempty"`
+	Credentials         *GitCredentials    `json:"credentials,omitempty"`
+	MaxRetries          int                `json:"max_retries,omitempty"`
+	InitialBackoff      string             `json:"initial_backoff,omitempty"`
+	MaxBackoff          string             `json:"max_backoff,omitempty"`
+	RetryBackoff        time.Duration      `json:"-"`
+	MaxRetryBackoff     time.Duration      `json:"-"`
+	CreateNamespace     bool               `json:"create_namespace,omitempty"`
+	DependsOn           []string           `json:"depends_on,omitempty"`
+	Prune               bool               `json:"prune,omitempty"`
+	SyncWindows         []SyncWindow       `json:"sync_windows,omitempty"`
+}
+
+// SyncWindow defines a time period during which synchronization is allowed.
+type SyncWindow struct {
+	Start    string   `json:"start"`    // e.g. "09:00"
+	End      string   `json:"end"`      // e.g. "17:00"
+	Days     []string `json:"days"`     // e.g. ["Monday", "Tuesday"]
+	TimeZone string   `json:"timezone"` // e.g. "UTC", "Local"
+	Deny     bool     `json:"deny"`     // if true, this is a "blackout" window
+}
+
+// IsSyncAllowed checks if synchronization is currently allowed based on configured sync windows.
+func (a *Application) IsSyncAllowed(now time.Time) (bool, string) {
+	if len(a.SyncWindows) == 0 {
+		return true, ""
+	}
+
+	allowed := true
+	// If there are ANY non-deny windows, we start with allowed=false (need to find an allowed window)
+	hasAllowedWindow := false
+	for _, w := range a.SyncWindows {
+		if !w.Deny {
+			hasAllowedWindow = true
+			break
+		}
+	}
+	if hasAllowedWindow {
+		allowed = false
+	}
+
+	for _, w := range a.SyncWindows {
+		inWindow := w.contains(now)
+		if inWindow {
+			if w.Deny {
+				return false, fmt.Sprintf("In blackout window (%s-%s)", w.Start, w.End)
+			}
+			allowed = true
+		}
+	}
+
+	if !allowed {
+		return false, "Outside of allowed sync windows"
+	}
+
+	return true, ""
+}
+
+func (w SyncWindow) contains(t time.Time) bool {
+	loc := time.UTC
+	if w.TimeZone == "Local" {
+		loc = time.Local
+	} else if w.TimeZone != "" {
+		if l, err := time.LoadLocation(w.TimeZone); err == nil {
+			loc = l
+		}
+	}
+
+	now := t.In(loc)
+	day := now.Weekday().String()
+
+	dayMatch := len(w.Days) == 0
+	for _, d := range w.Days {
+		if strings.EqualFold(d, day) {
+			dayMatch = true
+			break
+		}
+	}
+	if !dayMatch {
+		return false
+	}
+
+	// Parse "HH:MM"
+	start, err1 := time.ParseInLocation("15:04", w.Start, loc)
+	end, err2 := time.ParseInLocation("15:04", w.End, loc)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+
+	// Create times for today
+	startTime := time.Date(now.Year(), now.Month(), now.Day(), start.Hour(), start.Minute(), 0, 0, loc)
+	endTime := time.Date(now.Year(), now.Month(), now.Day(), end.Hour(), end.Minute(), 0, 0, loc)
+
+	if endTime.Before(startTime) {
+		// Window crosses midnight
+		return now.After(startTime) || now.Before(endTime)
+	}
+
+	return now.After(startTime) && now.Before(endTime)
+}
+
+// GitCredentials holds authentication information for private Git repositories.
+type GitCredentials struct {
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"` // Also used for PATs
+	SSHKey   string `json:"ssh_key,omitempty"`  // Raw SSH private key content
+	Token    string `json:"token,omitempty"`    // Alternative for PATs
 }
 
 // ResourceMetadata matches the one in internal/core/k8s to avoid circular imports.
@@ -150,6 +257,19 @@ func LoadApplications(filePath string) (*Applications, error) {
 			return nil, fmt.Errorf("invalid polling interval for app %s: %w", app.Name, err)
 		}
 		app.PollingInterval = duration
+
+		// Parse retry backoffs
+		if app.InitialBackoff != "" {
+			if d, err := time.ParseDuration(app.InitialBackoff); err == nil {
+				app.RetryBackoff = d
+			}
+		}
+		if app.MaxBackoff != "" {
+			if d, err := time.ParseDuration(app.MaxBackoff); err == nil {
+				app.MaxRetryBackoff = d
+			}
+		}
+
 		apps.Apps[app.Name] = app // Directly add to map while lock is held
 	}
 

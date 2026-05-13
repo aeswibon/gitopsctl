@@ -34,11 +34,14 @@ func (h *Handler) Register(c echo.Context) error {
 	}
 
 	newCluster := &clustercore.Cluster{
-		Name:           req.Name,
-		KubeconfigPath: req.KubeconfigPath,
-		RegisteredAt:   time.Now(),
-		Status:         "Active",
-		Message:        "Cluster registered successfully.",
+		Name:              req.Name,
+		KubeconfigPath:    req.KubeconfigPath,
+		RegisteredAt:      time.Now(),
+		Status:            "Active",
+		Message:           "Cluster registered successfully.",
+		DefaultNamespace:  req.DefaultNamespace,
+		EnforceNamespace:  req.EnforceNamespace,
+		AllowedNamespaces: req.AllowedNamespaces,
 	}
 	h.clusters.Add(newCluster)
 

@@ -9,14 +9,23 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"go.uber.org/zap"
 )
 
+// AuthOptions holds authentication information for private Git repositories.
+type AuthOptions struct {
+	Username string
+	Password string
+	Token    string
+	SSHKey   string
+}
+
 // CloneOrPull performs a Git clone if the target directory doesn't contain a valid Git repository.
 // If the repository already exists, it performs a Git pull to fetch the latest changes.
 // Returns the HEAD commit hash after the operation.
-func CloneOrPull(ctx context.Context, logger *zap.Logger, repoURL, branch, targetDir string) (string, error) {
+func CloneOrPull(ctx context.Context, logger *zap.Logger, repoURL, branch, targetDir string, auth AuthOptions) (string, error) {
 	var repo *gogit.Repository
 	var err error
 
@@ -38,7 +47,7 @@ func CloneOrPull(ctx context.Context, logger *zap.Logger, repoURL, branch, targe
 				SingleBranch:  true,
 				Depth:         1, // Only clone the latest commit for efficiency
 				Progress:      os.Stdout,
-				Auth:          setupAuth(repoURL), // Handles SSH agent/keys
+				Auth:          setupAuth(repoURL, auth), // Handles SSH agent/keys/HTTPS
 			})
 			if err != nil {
 				return "", fmt.Errorf("failed to clone repository %s: %w", repoURL, err)
@@ -64,7 +73,7 @@ func CloneOrPull(ctx context.Context, logger *zap.Logger, repoURL, branch, targe
 			ReferenceName: plumbing.ReferenceName("refs/heads/" + branch),
 			SingleBranch:  true,
 			Progress:      os.Stdout,
-			Auth:          setupAuth(repoURL), // Handles SSH agent/keys
+			Auth:          setupAuth(repoURL, auth), // Handles SSH agent/keys/HTTPS
 		})
 		if err != nil {
 			if err == gogit.NoErrAlreadyUpToDate {
@@ -98,21 +107,38 @@ func GetLatestCommitHash(logger *zap.Logger, repoPath string) (string, error) {
 }
 
 // setupAuth provides authentication for Git operations.
-// For SSH-based repositories, it attempts to use the SSH agent or default SSH keys.
-// For HTTPS-based repositories, it currently supports public repositories without authentication.
-// In production, this function could be extended to handle tokens, username/password, or specific key files.
-func setupAuth(repoURL string) transport.AuthMethod {
+func setupAuth(repoURL string, opts AuthOptions) transport.AuthMethod {
+	// 1. Check for SSH
 	if strings.HasPrefix(repoURL, "git@") || strings.HasPrefix(repoURL, "ssh://") {
-		// Try to use SSH agent or default SSH keys (~/.ssh/id_rsa)
-		sshAuth, err := ssh.NewSSHAgentAuth("") // Empty string uses default agent/keys
-		if err != nil {
-			zap.L().Warn("Could not use SSH agent for Git authentication, falling back to public repos", zap.Error(err))
-			return nil // Fallback to no authentication (will work for public repos)
+		if opts.SSHKey != "" {
+			publicKeys, err := ssh.NewPublicKeys("git", []byte(opts.SSHKey), "")
+			if err == nil {
+				return publicKeys
+			}
+			zap.L().Warn("Failed to create SSH public keys from provided key", zap.Error(err))
 		}
-		return sshAuth
+		// Fallback to SSH agent
+		sshAuth, err := ssh.NewSSHAgentAuth("")
+		if err == nil {
+			return sshAuth
+		}
+		return nil
 	}
-	// For HTTPS, no explicit AuthMethod for public repos.
-	// For private HTTPS repos, you'd need http.BasicAuth or similar.
+
+	// 2. Check for HTTPS Token/Basic Auth
+	if opts.Token != "" {
+		return &http.BasicAuth{
+			Username: "oauth2", // Common for GitHub/GitLab tokens
+			Password: opts.Token,
+		}
+	}
+	if opts.Username != "" && opts.Password != "" {
+		return &http.BasicAuth{
+			Username: opts.Username,
+			Password: opts.Password,
+		}
+	}
+
 	return nil
 }
 

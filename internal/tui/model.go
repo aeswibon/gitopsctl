@@ -44,7 +44,7 @@ type Model struct {
 	retryCount    int
 }
 
-func NewModel(apiURL string) Model {
+func NewModel(apiURL, apiKey string) Model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(accent)
@@ -53,7 +53,7 @@ func NewModel(apiURL string) Model {
 	return Model{
 		loading: true,
 		spinner: s,
-		client:  newAPIClient(apiURL),
+		client:  newAPIClient(apiURL, apiKey),
 		ctx:     ctx,
 		cancel:  cancel,
 	}
@@ -222,27 +222,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.clusterCursor = 0
 				}
 				return m, nil
-			case "up", "k":
-				// If it's "k" and we are filtering, should it be a character or navigation?
-				// Usually in TUIs, if you are in a "search mode", arrow keys navigate,
-				// but 'k' might be a character.
-				// Let's stick to arrow keys for navigation during filtering for now
-				// to avoid ambiguity, OR check if it's a rune.
-				if msg.Type == tea.KeyUp {
-					if m.state == appsView && m.appCursor > 0 {
-						m.appCursor--
-					} else if m.state == clustersView && m.clusterCursor > 0 {
-						m.clusterCursor--
-					}
+			case "up":
+				if m.state == appsView && m.appCursor > 0 {
+					m.appCursor--
+				} else if m.state == clustersView && m.clusterCursor > 0 {
+					m.clusterCursor--
+				}
+				return m, nil
+			case "down":
+				if m.state == appsView && m.appCursor < len(m.filteredApps())-1 {
+					m.appCursor++
+				} else if m.state == clustersView && m.clusterCursor < len(m.filteredClusters())-1 {
+					m.clusterCursor++
+				}
+				return m, nil
+			case "k":
+				if msg.Type == tea.KeyRunes {
+					// Treat as character if it's a rune
+					m.filter += "k"
+					m.appCursor = 0
+					m.clusterCursor = 0
 					return m, nil
 				}
-			case "down", "j":
-				if msg.Type == tea.KeyDown {
-					if m.state == appsView && m.appCursor < len(m.filteredApps())-1 {
-						m.appCursor++
-					} else if m.state == clustersView && m.clusterCursor < len(m.filteredClusters())-1 {
-						m.clusterCursor++
-					}
+			case "j":
+				if msg.Type == tea.KeyRunes {
+					m.filter += "j"
+					m.appCursor = 0
+					m.clusterCursor = 0
 					return m, nil
 				}
 			}
@@ -576,6 +582,32 @@ func (m Model) renderAppDetail(w int) string {
 		b.WriteString(kv("Policy", "auto") + "\n")
 	}
 	b.WriteString(kv("Failures", failures) + "\n")
+	b.WriteString(kv("Pruning", fmt.Sprintf("%v", a.Prune)) + "\n")
+	b.WriteString(kv("Create NS", fmt.Sprintf("%v", a.CreateNamespace)) + "\n")
+
+	if len(a.DependsOn) > 0 {
+		b.WriteString(kv("Depends On", strings.Join(a.DependsOn, ", ")) + "\n")
+	}
+	if a.MaxRetries > 0 {
+		b.WriteString(kv("Retry Policy", fmt.Sprintf("%dx (initial: %s, max: %s)", a.MaxRetries, a.InitialBackoff, a.MaxBackoff)) + "\n")
+	}
+	if len(a.SyncWindows) > 0 {
+		b.WriteString("\n" + DetailLabel.Render("Sync Windows") + "\n")
+		for _, w := range a.SyncWindows {
+			kind := "Allow"
+			if w.Deny {
+				kind = "Deny"
+			}
+			days := "All days"
+			if len(w.Days) > 0 {
+				days = strings.Join(w.Days, ", ")
+			}
+			b.WriteString(DetailValue.Render(fmt.Sprintf("  • %s: %s-%s (%s)", kind, w.Start, w.End, days)) + "\n")
+		}
+	}
+	if a.WebhookURL != "" {
+		b.WriteString(kv("Webhook", a.WebhookURL) + "\n")
+	}
 	b.WriteString("\n" + DetailLabel.Render("Message") + "\n")
 	b.WriteString(DetailValue.Italic(true).Render(msg))
 	return b.String()
@@ -604,6 +636,14 @@ func (m Model) renderClusterDetail(_ int) string {
 	b.WriteString(kv("Kubeconfig", c.KubeconfigPath) + "\n")
 	b.WriteString(kv("Registered", reg) + "\n")
 	b.WriteString(kv("Last Checked", checked) + "\n")
+	if c.DefaultNamespace != "" {
+		b.WriteString(kv("Default NS", c.DefaultNamespace) + "\n")
+		b.WriteString(kv("Enforce NS", fmt.Sprintf("%v", c.EnforceNamespace)) + "\n")
+	}
+	if len(c.AllowedNamespaces) > 0 {
+		b.WriteString(kv("Allowed NS", strings.Join(c.AllowedNamespaces, ", ")) + "\n")
+	}
+
 	b.WriteString("\n" + DetailLabel.Render("Message") + "\n")
 	b.WriteString(DetailValue.Italic(true).Render(msg))
 	return b.String()
@@ -695,8 +735,8 @@ func (m Model) filteredClusters() []ClusterResponse {
 
 // ── Run ───────────────────────────────────────────────────────────────────────
 
-func Run(apiURL string) error {
-	p := tea.NewProgram(NewModel(apiURL), tea.WithAltScreen())
+func Run(apiURL, apiKey string) error {
+	p := tea.NewProgram(NewModel(apiURL, apiKey), tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }

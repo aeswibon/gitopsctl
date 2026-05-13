@@ -26,7 +26,7 @@ func response(status int, body string) *http.Response {
 }
 
 func clientWithTransport(fn roundTripFunc) *apiClient {
-	client := newAPIClient("http://gitopsctl.test")
+	client := newAPIClient("http://gitopsctl.test", "")
 	client.client.Transport = fn
 	client.sseClient.Transport = fn
 	return client

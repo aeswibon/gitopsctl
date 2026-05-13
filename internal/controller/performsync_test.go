@@ -19,13 +19,13 @@ import (
 
 // mockApplier is a k8sApplier that delegates to a function — no real cluster needed.
 type mockApplier struct {
-	applyFn  func(ctx context.Context, manifestsDir, appName, clusterName string) ([]k8s.ResourceMetadata, []error)
+	applyFn  func(ctx context.Context, manifestsDir, appName, clusterName string, createNamespace bool, previouslyApplied []k8s.ResourceMetadata, prune bool) ([]k8s.ResourceMetadata, []error)
 	healthFn func(ctx context.Context, r k8s.ResourceMetadata) (string, string, error)
 }
 
-func (m *mockApplier) ApplyManifests(ctx context.Context, manifestsDir, appName, clusterName string) ([]k8s.ResourceMetadata, []error) {
+func (m *mockApplier) ApplyManifests(ctx context.Context, manifestsDir, appName, clusterName string, createNamespace bool, previouslyApplied []k8s.ResourceMetadata, prune bool) ([]k8s.ResourceMetadata, []error) {
 	if m.applyFn != nil {
-		return m.applyFn(ctx, manifestsDir, appName, clusterName)
+		return m.applyFn(ctx, manifestsDir, appName, clusterName, createNamespace, previouslyApplied, prune)
 	}
 	return nil, nil
 }
@@ -40,7 +40,7 @@ func (m *mockApplier) GetResourceHealth(ctx context.Context, r k8s.ResourceMetad
 // filesystemApplier applies no k8s operations but does a real WalkDir so
 // manifest-path tests exercise the actual filesystem error path.
 func filesystemApplier() k8sApplier {
-	return &mockApplier{applyFn: func(_ context.Context, manifestsDir, _, _ string) ([]k8s.ResourceMetadata, []error) {
+	return &mockApplier{applyFn: func(_ context.Context, manifestsDir, _, _ string, _ bool, _ []k8s.ResourceMetadata, _ bool) ([]k8s.ResourceMetadata, []error) {
 		if _, err := os.Stat(manifestsDir); err != nil {
 			return nil, []error{err}
 		}
@@ -154,7 +154,7 @@ func TestPerformSync_NoChangesSetsSynced(t *testing.T) {
 	appCfg := filepath.Join(workDir, "apps.json")
 
 	// First clone to workDir and read hash.
-	hash, err := gitcore.CloneOrPull(context.Background(), logger, repoPath, "master", workDir)
+	hash, err := gitcore.CloneOrPull(context.Background(), logger, repoPath, "master", workDir, gitcore.AuthOptions{})
 	if err != nil {
 		t.Fatalf("initial clone failed: %v", err)
 	}
@@ -173,7 +173,9 @@ func TestPerformSync_NoChangesSetsSynced(t *testing.T) {
 	ctrl.clusters.Add(&cluster.Cluster{Name: "c1"})
 
 	// Same hash + manual trigger = Synced without hitting apply.
-	applier := &mockApplier{applyFn: func(_ context.Context, _, _, _ string) ([]k8s.ResourceMetadata, []error) { return nil, nil }}
+	applier := &mockApplier{applyFn: func(_ context.Context, _, _, _ string, _ bool, _ []k8s.ResourceMetadata, _ bool) ([]k8s.ResourceMetadata, []error) {
+		return nil, nil
+	}}
 	ctrl.performSync(context.Background(), logger, a, workDir, applier, appCfg, "manual")
 	if a.Status != "Synced" {
 		t.Fatalf("expected Synced on no-change manual sync, got %s", a.Status)
@@ -193,7 +195,7 @@ func TestPerformSync_ManifestPathMissingSetsError(t *testing.T) {
 
 	appCfg := filepath.Join(workDir, "apps.json")
 
-	if _, err := gitcore.CloneOrPull(context.Background(), logger, repoPath, "master", workDir); err != nil {
+	if _, err := gitcore.CloneOrPull(context.Background(), logger, repoPath, "master", workDir, gitcore.AuthOptions{}); err != nil {
 		t.Fatalf("clone failed: %v", err)
 	}
 
@@ -345,7 +347,7 @@ func TestPerformSync_ManualSyncApproved(t *testing.T) {
 	ctrl.clusters.Add(&cluster.Cluster{Name: "c1", KubeconfigPath: "invalid"})
 
 	mock := &mockApplier{
-		applyFn: func(ctx context.Context, manifestsDir, appName, clusterName string) ([]k8s.ResourceMetadata, []error) {
+		applyFn: func(ctx context.Context, manifestsDir, appName, clusterName string, _ bool, _ []k8s.ResourceMetadata, _ bool) ([]k8s.ResourceMetadata, []error) {
 			return []k8s.ResourceMetadata{{Kind: "ConfigMap", Name: "sample"}}, nil
 		},
 	}
@@ -381,7 +383,7 @@ func TestPerformSync_ApplyFailure(t *testing.T) {
 	ctrl.clusters.Add(&cluster.Cluster{Name: "c1"})
 
 	mock := &mockApplier{
-		applyFn: func(ctx context.Context, manifestsDir, appName, clusterName string) ([]k8s.ResourceMetadata, []error) {
+		applyFn: func(ctx context.Context, manifestsDir, appName, clusterName string, _ bool, _ []k8s.ResourceMetadata, _ bool) ([]k8s.ResourceMetadata, []error) {
 			return nil, []error{fmt.Errorf("apply failed")}
 		},
 	}
@@ -389,5 +391,83 @@ func TestPerformSync_ApplyFailure(t *testing.T) {
 	ctrl.performSync(context.Background(), logger, a, workDir, mock, appCfg, "manual")
 	if a.Status != "Error" || !strings.Contains(a.Message, "apply failed") {
 		t.Fatalf("expected Apply error, got %s: %s", a.Status, a.Message)
+	}
+}
+
+func TestPerformSync_DependsOn(t *testing.T) {
+	logger := zap.NewNop()
+	apps := app.NewApplications()
+	ctrl := NewController(logger, apps, cluster.NewClusters())
+
+	workDir, _ := os.MkdirTemp("", "sync-dependson")
+	defer func() { _ = os.RemoveAll(workDir) }()
+	appCfg := filepath.Join(workDir, "apps.json")
+
+	// 1. Dependency not healthy
+	dep := &app.Application{Name: "dep", Status: "Degraded"}
+	apps.Add(dep)
+
+	a := &app.Application{
+		Name:      "a1",
+		DependsOn: []string{"dep"},
+		Status:    "Pending",
+	}
+	apps.Add(a)
+
+	ctrl.performSync(context.Background(), logger, a, workDir, nil, appCfg, "auto")
+	if a.Status != "WaitingForDependencies" {
+		t.Errorf("expected WaitingForDependencies, got %s", a.Status)
+	}
+
+	// 2. Dependency missing
+	a.DependsOn = []string{"missing"}
+	ctrl.performSync(context.Background(), logger, a, workDir, nil, appCfg, "auto")
+	// Currently the code sets WaitingForDependencies even if missing.
+	if a.Status != "WaitingForDependencies" || !strings.Contains(a.Message, "not found") {
+		t.Errorf("expected WaitingForDependencies with missing error, got %s: %s", a.Status, a.Message)
+	}
+
+	// 3. Dependency healthy
+	dep.Status = "Healthy"
+	a.DependsOn = []string{"dep"}
+	// It will now proceed to git clone... let's just check it's not WaitingForDependencies anymore
+	ctrl.performSync(context.Background(), logger, a, workDir, nil, appCfg, "auto")
+	if a.Status == "WaitingForDependencies" {
+		t.Error("should not be waiting after dependency became healthy")
+	}
+}
+
+func TestController_GetNextInterval(t *testing.T) {
+	apps := app.NewApplications()
+	ctrl := NewController(zap.NewNop(), apps, cluster.NewClusters())
+
+	a := &app.Application{
+		Name:            "a1",
+		PollingInterval: 10 * time.Minute,
+		RetryBackoff:    1 * time.Minute,
+		MaxRetryBackoff: 5 * time.Minute,
+	}
+
+	// 0 failures
+	if interval := ctrl.getNextInterval(a); interval != 10*time.Minute {
+		t.Errorf("expected 10m, got %v", interval)
+	}
+
+	// 1 failure
+	a.ConsecutiveFailures = 1
+	if interval := ctrl.getNextInterval(a); interval != 1*time.Minute {
+		t.Errorf("expected 1m, got %v", interval)
+	}
+
+	// 2 failures
+	a.ConsecutiveFailures = 2
+	if interval := ctrl.getNextInterval(a); interval != 2*time.Minute {
+		t.Errorf("expected 2m, got %v", interval)
+	}
+
+	// 4 failures (caps at max)
+	a.ConsecutiveFailures = 4
+	if interval := ctrl.getNextInterval(a); interval != 5*time.Minute {
+		t.Errorf("expected 5m (cap), got %v", interval)
 	}
 }
