@@ -129,3 +129,26 @@ func TestWebhookSink_DoesNotRetryOnNonTransient4xx(t *testing.T) {
 		t.Fatalf("expected 1 attempt, got %d", attempts)
 	}
 }
+
+func TestWebhookSink_Receive(t *testing.T) {
+	called := make(chan bool, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called <- true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	sink := NewWebhookSinkWithOptions(srv.URL, "", WebhookOptions{
+		Timeout: 100 * time.Millisecond,
+		Retries: 0,
+	})
+
+	_ = sink.Write(context.Background(), NewEnvelope("test", TypeControllerStarted, nil))
+
+	select {
+	case <-called:
+		// success
+	case <-time.After(500 * time.Millisecond):
+		t.Error("webhook not called within 500ms")
+	}
+}

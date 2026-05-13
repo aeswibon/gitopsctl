@@ -74,6 +74,16 @@ func (h *Handler) Register(c echo.Context) error {
 			}
 		}
 
+		existingApp.MaxRetries = req.MaxRetries
+		existingApp.InitialBackoff = req.InitialBackoff
+		existingApp.MaxBackoff = req.MaxBackoff
+		existingApp.CreateNamespace = req.CreateNamespace
+		existingApp.DependsOn = req.DependsOn
+		existingApp.Prune = req.Prune
+		existingApp.SyncWindows = req.SyncWindows
+		existingApp.WebhookURL = req.WebhookURL
+		existingApp.WebhookSecret = req.WebhookSecret
+
 	} else {
 		// Create new application
 		parsedInterval, err := time.ParseDuration(req.Interval)
@@ -91,6 +101,15 @@ func (h *Handler) Register(c echo.Context) error {
 			Status:              "Pending",
 			Message:             "Application registered, awaiting first sync.",
 			ConsecutiveFailures: 0,
+			MaxRetries:          req.MaxRetries,
+			InitialBackoff:      req.InitialBackoff,
+			MaxBackoff:          req.MaxBackoff,
+			CreateNamespace:     req.CreateNamespace,
+			DependsOn:           req.DependsOn,
+			Prune:               req.Prune,
+			SyncWindows:         req.SyncWindows,
+			WebhookURL:          req.WebhookURL,
+			WebhookSecret:       req.WebhookSecret,
 		}
 		if req.Credentials != nil {
 			newApp.Credentials = &appcore.GitCredentials{

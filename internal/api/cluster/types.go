@@ -69,3 +69,12 @@ func ConvertToResponse(cl *clustercore.Cluster) Response {
 		AllowedNamespaces: cl.AllowedNamespaces,
 	}
 }
+
+// ConvertToResponseList converts a slice of Cluster to a slice of Response.
+func ConvertToResponseList(clusters []*clustercore.Cluster) []Response {
+	resp := make([]Response, len(clusters))
+	for i, cl := range clusters {
+		resp[i] = ConvertToResponse(cl)
+	}
+	return resp
+}

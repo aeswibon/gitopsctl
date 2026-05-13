@@ -393,3 +393,81 @@ func TestPerformSync_ApplyFailure(t *testing.T) {
 		t.Fatalf("expected Apply error, got %s: %s", a.Status, a.Message)
 	}
 }
+
+func TestPerformSync_DependsOn(t *testing.T) {
+	logger := zap.NewNop()
+	apps := app.NewApplications()
+	ctrl := NewController(logger, apps, cluster.NewClusters())
+
+	workDir, _ := os.MkdirTemp("", "sync-dependson")
+	defer func() { _ = os.RemoveAll(workDir) }()
+	appCfg := filepath.Join(workDir, "apps.json")
+
+	// 1. Dependency not healthy
+	dep := &app.Application{Name: "dep", Status: "Degraded"}
+	apps.Add(dep)
+
+	a := &app.Application{
+		Name:      "a1",
+		DependsOn: []string{"dep"},
+		Status:    "Pending",
+	}
+	apps.Add(a)
+
+	ctrl.performSync(context.Background(), logger, a, workDir, nil, appCfg, "auto")
+	if a.Status != "WaitingForDependencies" {
+		t.Errorf("expected WaitingForDependencies, got %s", a.Status)
+	}
+
+	// 2. Dependency missing
+	a.DependsOn = []string{"missing"}
+	ctrl.performSync(context.Background(), logger, a, workDir, nil, appCfg, "auto")
+	// Currently the code sets WaitingForDependencies even if missing.
+	if a.Status != "WaitingForDependencies" || !strings.Contains(a.Message, "not found") {
+		t.Errorf("expected WaitingForDependencies with missing error, got %s: %s", a.Status, a.Message)
+	}
+
+	// 3. Dependency healthy
+	dep.Status = "Healthy"
+	a.DependsOn = []string{"dep"}
+	// It will now proceed to git clone... let's just check it's not WaitingForDependencies anymore
+	ctrl.performSync(context.Background(), logger, a, workDir, nil, appCfg, "auto")
+	if a.Status == "WaitingForDependencies" {
+		t.Error("should not be waiting after dependency became healthy")
+	}
+}
+
+func TestController_GetNextInterval(t *testing.T) {
+	apps := app.NewApplications()
+	ctrl := NewController(zap.NewNop(), apps, cluster.NewClusters())
+
+	a := &app.Application{
+		Name:            "a1",
+		PollingInterval: 10 * time.Minute,
+		RetryBackoff:    1 * time.Minute,
+		MaxRetryBackoff: 5 * time.Minute,
+	}
+
+	// 0 failures
+	if interval := ctrl.getNextInterval(a); interval != 10*time.Minute {
+		t.Errorf("expected 10m, got %v", interval)
+	}
+
+	// 1 failure
+	a.ConsecutiveFailures = 1
+	if interval := ctrl.getNextInterval(a); interval != 1*time.Minute {
+		t.Errorf("expected 1m, got %v", interval)
+	}
+
+	// 2 failures
+	a.ConsecutiveFailures = 2
+	if interval := ctrl.getNextInterval(a); interval != 2*time.Minute {
+		t.Errorf("expected 2m, got %v", interval)
+	}
+
+	// 4 failures (caps at max)
+	a.ConsecutiveFailures = 4
+	if interval := ctrl.getNextInterval(a); interval != 5*time.Minute {
+		t.Errorf("expected 5m (cap), got %v", interval)
+	}
+}

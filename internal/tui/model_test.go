@@ -10,6 +10,47 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+func TestModel_RenderPhase7Fields(t *testing.T) {
+	m := NewModel("http://example.test", "")
+	m.apps = []AppResponse{
+		{
+			Name:            "phase7app",
+			CreateNamespace: true,
+			Prune:           true,
+			MaxRetries:      3,
+			SyncWindows: []SyncWindow{
+				{Start: "00:00", End: "01:00", Deny: false},
+			},
+
+		},
+	}
+	m.clusters = []ClusterResponse{
+		{
+			Name:              "phase7cluster",
+			DefaultNamespace:  "default-ns",
+			EnforceNamespace:  true,
+			AllowedNamespaces: []string{"ns1", "ns2"},
+		},
+	}
+
+	// 1. App detail
+	m.state = appsView
+	m.appCursor = 0
+	appView := m.renderAppDetail(100)
+	if !strings.Contains(appView, "Pruning") || !strings.Contains(appView, "true") {
+		t.Error("expected Pruning: true in app detail")
+	}
+	// We will add Create Namespace to the renderer next
+
+	// 2. Cluster detail
+	m.state = clustersView
+	m.clusterCursor = 0
+	clusterView := m.renderClusterDetail(100)
+	if !strings.Contains(clusterView, "Default NS") || !strings.Contains(clusterView, "default-ns") {
+		t.Error("expected Default NS in cluster detail")
+	}
+}
+
 func sampleApp(name string) AppResponse {
 	return AppResponse{
 		Name:                name,

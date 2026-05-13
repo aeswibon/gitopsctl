@@ -583,6 +583,8 @@ func (m Model) renderAppDetail(w int) string {
 	}
 	b.WriteString(kv("Failures", failures) + "\n")
 	b.WriteString(kv("Pruning", fmt.Sprintf("%v", a.Prune)) + "\n")
+	b.WriteString(kv("Create NS", fmt.Sprintf("%v", a.CreateNamespace)) + "\n")
+
 	if len(a.DependsOn) > 0 {
 		b.WriteString(kv("Depends On", strings.Join(a.DependsOn, ", ")) + "\n")
 	}
@@ -641,6 +643,7 @@ func (m Model) renderClusterDetail(_ int) string {
 	if len(c.AllowedNamespaces) > 0 {
 		b.WriteString(kv("Allowed NS", strings.Join(c.AllowedNamespaces, ", ")) + "\n")
 	}
+
 	b.WriteString("\n" + DetailLabel.Render("Message") + "\n")
 	b.WriteString(DetailValue.Italic(true).Render(msg))
 	return b.String()

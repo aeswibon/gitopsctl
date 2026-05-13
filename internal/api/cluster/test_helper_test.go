@@ -1,4 +1,4 @@
-package app
+package cluster
 
 import (
 	"net/http/httptest"
@@ -26,16 +26,14 @@ func (cv *testValidator) Validate(i any) error {
 func newTestHandler() (*Handler, *echo.Echo, *appcore.Applications, *clustercore.Clusters) {
 	e := echo.New()
 	v := validator.New()
-	// Register basic url validator for tests
-	_ = v.RegisterValidation("url", func(fl validator.FieldLevel) bool {
-		s := fl.Field().String()
-		return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+	_ = v.RegisterValidation("kubeconfigfile", func(fl validator.FieldLevel) bool {
+		return true // skip real file check in tests
 	})
 	e.Validator = &testValidator{validator: v}
 	apps := appcore.NewApplications()
 	clusters := clustercore.NewClusters()
 	ctrl := controller.NewController(zap.NewNop(), apps, clusters)
-	h := NewHandler(zap.NewNop(), apps, clusters, ctrl)
+	h := NewHandler(zap.NewNop(), clusters, apps, ctrl)
 	return h, e, apps, clusters
 }
 

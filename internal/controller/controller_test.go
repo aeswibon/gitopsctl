@@ -256,6 +256,44 @@ func TestController_HandleAppCommand_Register(t *testing.T) {
 	ctrl.handleAppCommand(cmd, appConfig)
 }
 
+func TestController_HandleAppCommand_Stop(t *testing.T) {
+	logger := zap.NewNop()
+	apps := app.NewApplications()
+	ctrl := NewController(logger, apps, cluster.NewClusters())
+
+	tmpDir, _ := os.MkdirTemp("", "controller-stop")
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+	appConfig := filepath.Join(tmpDir, "apps.yaml")
+
+	a := &app.Application{Name: "a1"}
+	apps.Add(a)
+
+	appCtx, cancel := context.WithCancel(context.Background())
+	ctrl.mu.Lock()
+	ctrl.runningApps["a1"] = &appRuntime{cancel: cancel}
+	ctrl.mu.Unlock()
+
+	ctrl.handleAppCommand(AppCommand{Type: AppCommandStop, AppName: "a1"}, appConfig)
+
+	select {
+	case <-appCtx.Done():
+		// success
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected cancel() to be called")
+	}
+}
+
+func TestController_PerformClusterHealthCheck_Manual(t *testing.T) {
+	ctrl := NewController(zap.NewNop(), app.NewApplications(), cluster.NewClusters())
+	cl := &cluster.Cluster{Name: "c1", KubeconfigPath: "invalid"}
+	ctrl.clusters.Add(cl)
+
+	ctrl.performClusterHealthCheck(context.Background(), cl)
+	if cl.Status != "Error" {
+		t.Errorf("expected Error status for invalid kubeconfig, got %s", cl.Status)
+	}
+}
+
 func TestController_Notify(t *testing.T) {
 	logger := zap.NewNop()
 	apps := app.NewApplications()
